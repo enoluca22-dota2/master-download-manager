@@ -71,3 +71,33 @@ def test_insecure_or_missing_manifest_url():
     with pytest.raises(UpdateError, match="configured"):
         check_for_update("")
     assert updater.__version__  # the app's own version, not yt-dlp's
+
+
+def _release(assets, tag="v4.1.0", **kw):
+    return dict({"tag_name": tag, "draft": False, "prerelease": False, "body": "notes", "assets": assets}, **kw)
+
+
+def test_github_release_is_turned_into_a_verified_manifest():
+    from ytd.updater import manifest_from_github_release
+    sha = "a" * 64
+    rel = _release([{"name": "Master.Download.Manager.Setup.4.1.0.exe", "size": 123,
+                     "browser_download_url": "https://github.com/o/r/releases/download/v4.1.0/Master.Download.Manager.Setup.4.1.0.exe"},
+                    {"name": "SHA256SUMS.txt", "browser_download_url": "https://github.com/o/r/x"}])
+    m = manifest_from_github_release(rel, f"{sha}  Master.Download.Manager.Setup.4.1.0.exe\n{'b' * 64}  other.zip\n")
+    assert m["version"] == "4.1.0" and m["sha256"] == sha and m["size"] == 123
+
+
+def test_github_release_without_matching_checksum_or_installer_is_refused():
+    import pytest
+    from ytd.updater import UpdateError, manifest_from_github_release
+    good = {"name": "Master.Download.Manager.Setup.4.1.0.exe", "size": 1,
+            "browser_download_url": "https://github.com/o/r/a.exe"}
+    with pytest.raises(UpdateError):  # installer not listed in SHA256SUMS
+        manifest_from_github_release(_release([good]), "c" * 64 + "  something-else.exe\n")
+    with pytest.raises(UpdateError):  # no installer asset at all
+        manifest_from_github_release(_release([{"name": "evil.exe", "browser_download_url": "https://x/evil.exe"}]), "")
+    with pytest.raises(UpdateError):  # pre-releases are never offered
+        manifest_from_github_release(_release([good], prerelease=True), "d" * 64 + "  " + good["name"])
+    with pytest.raises(UpdateError):  # plain http download URL refused
+        manifest_from_github_release(_release([dict(good, browser_download_url="http://github.com/a.exe")]),
+                                     "e" * 64 + "  " + good["name"])

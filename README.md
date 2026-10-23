@@ -100,7 +100,7 @@ Run from source: `.venv\Scripts\python master_download_manager.py`
 
 ## Testing
 
-* `python build.py test` — 352 automated tests (engines, queues, scheduler,
+* `python build.py test` — 354 automated tests (engines, queues, scheduler,
   history, API, routing, extension logic, safety), using local HTTP servers and
   local BitTorrent peers — no internet needed.
 * `tools/gui_smoke.py` — drives the real window (25 checks + screenshots).

@@ -10,7 +10,7 @@ app, not the Python source.
 | Suite | Target | Result |
 |---|---|---|
 | Baseline before any change (3.0.0) | source | **292 / 292 passed** |
-| Automated tests (`pytest tests`) | source | **352 / 352 passed** (final run) |
+| Automated tests (`pytest tests`) | source | **354 / 354 passed** (final run, after the release-updater tests were added) |
 | GUI smoke (`tools/gui_smoke.py`) | real window, source | **25 / 25** |
 | Real-world downloads (`tools/real_world_test.py`) | packaged 4.0.0, internet | **22 / 22** |
 | Extension regression (`tools/browser_extension_test.py`) | packaged app + Chromium + YouTube | **15 / 15** |
@@ -19,9 +19,9 @@ app, not the Python source.
 | Queue load / churn (`tools/perf_queue.py`) | source engine | **6 / 6** |
 | Real upgrade 3.0.0 → 4.0.0 of the installed app | release installer | **passed** (§6) |
 
-## 2. Automated tests (352)
+## 2. Automated tests (354)
 
-New in 4.0 (60 tests): `test_http_upgrades.py` (dynamic splitting, adaptive
+New in 4.0 (62 tests): `test_http_upgrades.py` (dynamic splitting, adaptive
 connections, checksum, Last-Modified, global limit, retry reset),
 `test_queues_scheduler.py` (queue CRUD/persistence, per-queue concurrency,
 priority + aging, scheduled starts, completion events, DST/sleep/catch-up,
@@ -29,7 +29,7 @@ speed profiles, recurring downloads), `test_history_sqlite.py` (migration
 from 3.x JSON, search/filters, export/import incl. CSV formula guard, 20k
 rows), `test_api_v4.py` (auth on new endpoints, capture gating and probing,
 batch validation, queues, checksum/priority/connections validation),
-`test_extension_logic.py` (capture decision run in Node; manifests' permissions),
+`test_extension_logic.py` (capture decision run in Node; manifests' permissions), `test_updater.py` additions (GitHub release → verified manifest; refusals),
 `test_settings.py` additions (BOM, corrupt file backup), router manifests.
 
 Changed existing tests (intentional behaviour changes, not weakened checks):
