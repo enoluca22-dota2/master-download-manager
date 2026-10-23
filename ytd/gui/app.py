@@ -17,6 +17,7 @@ many simultaneous downloads.
 """
 
 import datetime
+import gc
 import os
 import queue
 import threading
@@ -30,7 +31,8 @@ import customtkinter as ctk
 from .. import bandwidth, notifications, power, tray
 from ..api.server import run_server
 from ..categories import MEDIA_SITES, TORRENTS, extension_of, is_media_site, job_category
-from ..config import APP_ICON_FILE, APP_NAME, QUEUE_FILE, QUEUES_FILE, SCHEDULER_FILE
+from .. import __version__
+from ..config import APP_ICON_FILE, APP_NAME, INSTALL_DIR, QUEUE_FILE, QUEUES_FILE, SCHEDULER_FILE
 from ..engine import DownloadManager, _format_speed
 from ..history import HistoryStore, delete_entry_file
 from ..logging_setup import get_logger
@@ -58,6 +60,7 @@ from .theme import COLORS, color, font, glass_card, glass_button
 log = get_logger()
 
 PUMP_MS = 120
+GC_INTERVAL_MS = 1000  # see _collect_garbage
 COUNTS_EVERY_S = 0.8
 
 COLUMNS = [
@@ -222,9 +225,14 @@ class MasterDownloadManagerApp:
         root.protocol("WM_DELETE_WINDOW", self._on_close_request)
         if self.settings.get("clipboard_monitor_enabled"):
             root.after(1500, self._poll_clipboard)
-        if self.settings.get("update_check_on_start"):
-            root.after(8000, self._background_update_check)
         root.after(PUMP_MS, self._pump)
+        # Tk objects (fonts, images, variables) must only be freed on the Tk
+        # thread. Automatic garbage collection can run in any thread that
+        # happens to allocate - e.g. the update check - and freeing a Font there
+        # deadlocks that thread. Collect cycles here, on the main loop, instead.
+        gc.disable()
+        self._gc_ticks = 0
+        root.after(GC_INTERVAL_MS, self._collect_garbage)
 
     # ======================================================= construction === #
     def _colors(self):
@@ -257,11 +265,15 @@ class MasterDownloadManagerApp:
         self._configure_ttk_style()
         root = self.root
         root.configure(fg_color=COLORS["background"])
-        root.grid_rowconfigure(1, weight=1)
+        root.grid_rowconfigure(1, weight=0)
+        root.grid_rowconfigure(2, weight=1)
         root.grid_columnconfigure(1, weight=1)
+        from .menubar import MenuBar
+        self.menubar = MenuBar(root, self)
+        self.menubar.grid(row=0, column=0, columnspan=2, sticky="ew")
         self._build_toolbar()
         self.sidebar = Sidebar(root, self, width=212)
-        self.sidebar.grid(row=1, column=0, sticky="ns")
+        self.sidebar.grid(row=2, column=0, sticky="ns")
         self._build_main()
         self._build_status_bar()
         self._bind_keys()
@@ -276,7 +288,7 @@ class MasterDownloadManagerApp:
     def _rebuild_ui(self):
         """Theme change: rebuild the main window's widgets in the new colours.
         Downloads keep running; only the views are recreated."""
-        for w in (self._toolbar, self.sidebar, self._main, self._statusbar):
+        for w in (self.menubar, self._toolbar, self.sidebar, self._main, self._statusbar):
             w.destroy()
         self._build_ui()
         self._mark_structure()
@@ -285,7 +297,7 @@ class MasterDownloadManagerApp:
     def _build_toolbar(self):
         c, s = self.c, self.scale
         bar = tk.Frame(self.root, bg=c["toolbar"], height=round(62 * s), bd=0, highlightthickness=0)
-        bar.grid(row=0, column=0, columnspan=2, sticky="ew")
+        bar.grid(row=1, column=0, columnspan=2, sticky="ew")
         bar.pack_propagate(False)
         self._toolbar = bar
         tk.Frame(bar, bg=c["border"], height=1).place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
@@ -341,7 +353,7 @@ class MasterDownloadManagerApp:
     # ================================================================ main === #
     def _build_main(self):
         main = ctk.CTkFrame(self.root, corner_radius=0, fg_color=COLORS["background"])
-        main.grid(row=1, column=1, sticky="nsew")
+        main.grid(row=2, column=1, sticky="nsew")
         main.grid_rowconfigure(1, weight=1)
         main.grid_columnconfigure(0, weight=1)
         self._main = main
@@ -597,6 +609,12 @@ class MasterDownloadManagerApp:
             self.call_in_main(self.toast, "info", f"Started — {truncate(job.title, 40)}")
         elif event == "finished":
             self.call_in_main(self._job_finished, job)
+
+    def _collect_garbage(self):
+        self._gc_ticks += 1
+        gc.collect(2 if self._gc_ticks % 60 == 0 else 1 if self._gc_ticks % 10 == 0 else 0)
+        if not self._closing:
+            self.root.after(GC_INTERVAL_MS, self._collect_garbage)
 
     def _pump(self):
         if self._closing:
@@ -922,15 +940,15 @@ class MasterDownloadManagerApp:
         self.manager.stop_queue(q.id)
         self.toast("info", f"Queue “{q.name}” stopped — its downloads are paused.")
 
-    def open_queues(self, queue_id=None):
+    def open_queues(self, queue_id=None, page=None, tab=None):
         from .queues_window import QueuesWindow
         existing = getattr(self, "_queues_window", None)
         if existing is not None and existing.win.winfo_exists():
             existing.win.lift()
-            if queue_id:
-                existing.select(queue_id)
+            existing.show(queue_id=queue_id or self._current_queue().id if tab else queue_id, page=page, tab=tab)
             return
-        self._queues_window = QueuesWindow(self, queue_id)
+        self._queues_window = QueuesWindow(self, queue_id or (self._current_queue().id if tab else None),
+                                           page=page, tab=tab)
 
     def new_queue(self, move_jobs=None):
         dialog = ctk.CTkInputDialog(title="New queue", text="Name of the new queue:")
@@ -1001,7 +1019,7 @@ class MasterDownloadManagerApp:
     def _build_status_bar(self):
         c, s = self.c, self.scale
         bar = tk.Frame(self.root, bg=c["toolbar"], height=round(30 * s))
-        bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        bar.grid(row=3, column=0, columnspan=2, sticky="ew")
         bar.pack_propagate(False)
         self._statusbar = bar
         tk.Frame(bar, bg=c["border"], height=1).place(relx=0, rely=0, relwidth=1.0, anchor="nw")
@@ -1014,6 +1032,8 @@ class MasterDownloadManagerApp:
         self.status_down = lab("left")
         self.status_up = lab("left")
         self.status_counts = lab("left")
+        self.status_version = lab("right")
+        self.status_version.configure(text=f"v{__version__}", fg=c["faint"])
         self.status_engines = lab("right")
         self.status_limit = lab("right", cursor="hand2")
         self.status_limit.bind("<Button-1>", lambda e: self.toggle_limited_mode())
@@ -1063,7 +1083,6 @@ class MasterDownloadManagerApp:
     # ================================================================ misc === #
     def _bind_keys(self):
         r = self.root
-        r.bind("<Control-n>", lambda e: self.open_add_dialog())
         r.bind("<Control-v>", lambda e: self.paste_and_add() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
         r.bind("<Control-f>", lambda e: self.search_entry.focus_set())
         r.bind("<F5>", lambda e: self._mark_structure())
@@ -1177,20 +1196,136 @@ class MasterDownloadManagerApp:
         if url:
             self.open_add_dialog(url, analyze=True)
 
+    # ============================================================ updates === #
+    UPDATE_CHECK_INTERVAL = 24 * 3600
+
+    def after_start(self, update_now=False, assume_yes=False):
+        """Runs once the window is up: report a finished update, then the
+        startup/daily update check (or the --update-now command)."""
+        from .. import update_install
+        from .update_dialog import show_post_update_result
+        try:
+            result = update_install.post_update_check()
+        except Exception:  # noqa: BLE001 - never block startup on this
+            log.exception("Post-update check failed")
+            result = None
+        if result:
+            show_post_update_result(self, result)
+        if update_now:
+            self.check_for_updates(auto_install=assume_yes)
+            return
+        due = time.time() - float(self.settings.get("update_last_check") or 0) > self.UPDATE_CHECK_INTERVAL
+        if self.settings.get("update_check_on_start") or (self.settings.get("update_auto_check", True) and due):
+            self.root.after(6000, self._background_update_check)
+        self.root.after(3600 * 1000, self._periodic_update_check)
+
+    def _periodic_update_check(self):
+        if self._closing:
+            return
+        due = time.time() - float(self.settings.get("update_last_check") or 0) > self.UPDATE_CHECK_INTERVAL
+        if self.settings.get("update_auto_check", True) and due:
+            self._background_update_check()
+        self.root.after(3600 * 1000, self._periodic_update_check)
+
     def _background_update_check(self):
-        from .. import updater
+        """Quiet check: only speaks up when there's something new (and the user
+        didn't ask to be reminded later about that version)."""
+        if (self.settings.get("update_source") or "github") != "github":
+            return
+        from ..updater import check_release
 
         def work():
             try:
-                available, manifest = updater.check(self.settings)
+                info = check_release(channel=self.settings.get("update_channel") or "stable")
             except Exception as e:  # noqa: BLE001 - background check is best-effort
                 log.info("Update check failed: %s", e)
+                self.settings.set("update_last_status", f"Check failed: {e}")
                 return
-            self.settings.set("update_last_check", time.time())
-            if available:
-                self.call_in_main(self.toast, "info", f"Master Download Manager {manifest['version']} is available "
-                                                      "— Settings → Updates.")
+            self.settings.update({"update_last_check": time.time(),
+                                  "update_last_status": f"Version {info.version} available" if info.available
+                                  else f"Up to date ({__version__})"})
+            snoozed = (self.settings.get("update_remind_version") == info.version
+                       and time.time() < float(self.settings.get("update_remind_after") or 0))
+            if info.available and not snoozed:
+                self.call_in_main(self.check_for_updates, False, info)
         threading.Thread(target=work, name="mdm-update-check", daemon=True).start()
+
+    def check_for_updates(self, auto_install=False, info=None):
+        from .update_dialog import UpdateDialog
+        existing = getattr(self, "_update_dialog", None)
+        if existing is not None and existing.win.winfo_exists():
+            existing.win.lift()
+            return existing
+        self.restore_window()
+        self._update_dialog = UpdateDialog(self, info=info, auto_install=auto_install)
+        return self._update_dialog
+
+    def install_update(self, info, installer, backup):
+        """Hand over to the verified installer and exit: downloads are paused
+        and saved first, then the single-instance lock is released so Setup
+        can replace the program files."""
+        from .. import single_instance, update_install
+        self._closing = True
+        try:
+            self.scheduler.stop()
+            self.manager.stop()  # running downloads -> Paused, queue saved
+        except Exception:  # noqa: BLE001
+            log.exception("Stopping downloads before the update failed")
+        try:
+            update_install.launch(info, installer, backup)
+        except Exception:
+            self._closing = False
+            self.manager.start()
+            self.scheduler.start()
+            raise
+        if self.api_server is not None:
+            self.api_server.should_exit = True
+        if self.tray_icon is not None:
+            self.tray_icon.stop()
+        try:
+            self.history.close()
+        except Exception:  # noqa: BLE001
+            pass
+        single_instance.release()
+        self.root.destroy()
+
+    # ===================================================== help / about === #
+    def open_about(self):
+        from .about_window import AboutWindow
+        existing = getattr(self, "_about", None)
+        if existing is not None and existing.win.winfo_exists():
+            existing.win.lift()
+            return
+        self._about = AboutWindow(self)
+
+    def open_licenses(self):
+        from .licenses_window import LicensesWindow
+        existing = getattr(self, "_licenses", None)
+        if existing is not None and existing.win.winfo_exists():
+            existing.win.lift()
+            return
+        self._licenses = LicensesWindow(self)
+
+    @staticmethod
+    def read_doc(name):
+        """A bundled document (installation docs/ folder, or the source tree)."""
+        for folder in (os.path.join(INSTALL_DIR, "docs"), INSTALL_DIR,
+                       os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                    "docs")):
+            path = os.path.join(folder, name)
+            if os.path.isfile(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        return f.read()
+                except OSError:
+                    return ""
+        return ""
+
+    def whats_new_text(self):
+        import re
+        text = self.read_doc("CHANGELOG.md")
+        m = re.search(rf"^## {re.escape(__version__)}\b.*?(?=^## |\Z)", text, re.M | re.S)
+        return m.group(0).strip() if m else f"No release notes for {__version__} were found."
 
     # ===================================================== tray / lifetime === #
     def _start_local_api(self):

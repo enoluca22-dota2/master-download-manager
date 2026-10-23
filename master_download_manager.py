@@ -12,9 +12,7 @@ Only download content you have the right to download. DRM-protected media
 is not supported and is never circumvented.
 """
 
-import ctypes
 import json
-import os
 import sys
 
 # Load libtorrent before anything that might import win11toast: both ship
@@ -25,27 +23,6 @@ try:
     import libtorrent  # noqa: F401
 except ImportError:
     pass
-
-_MUTEX_NAME = "Local\\MasterDownloadManager.SingleInstance"
-_ERROR_ALREADY_EXISTS = 183
-_mutex_handle = None
-
-
-def _another_instance_running():
-    """Holds a named mutex for the life of the process; True if it already existed."""
-    global _mutex_handle
-    if sys.platform != "win32":
-        return False
-    name = _MUTEX_NAME
-    if os.environ.get("MDM_DATA_DIR"):
-        # A portable/test profile is a separate instance from the installed app
-        # (the installer's AppMutex check only cares about the default name).
-        import hashlib
-        name += "." + hashlib.sha1(os.path.abspath(os.environ["MDM_DATA_DIR"]).lower().encode()).hexdigest()[:12]
-    kernel32 = ctypes.windll.kernel32
-    _mutex_handle = kernel32.CreateMutexW(None, False, name)
-    return kernel32.GetLastError() == _ERROR_ALREADY_EXISTS
-
 
 def _forward_to_running_instance(target):
     """Hand a link/.torrent path to the already-running window via its local API."""
@@ -70,7 +47,8 @@ def _launch_argument(argv):
 
 def main():
     target = _launch_argument(sys.argv)
-    if _another_instance_running():
+    from ytd import single_instance
+    if not single_instance.acquire():
         _forward_to_running_instance(target)
         return 0
 
@@ -109,6 +87,7 @@ def main():
         root.withdraw()
     if target:
         root.after(600, app.open_request, target)
+    root.after(1200, app.after_start, "--update-now" in sys.argv, "--yes" in sys.argv)
     root.mainloop()
     return 0
 

@@ -1,330 +1,943 @@
-[
+{
+ "schema": 2,
+ "app": "Master Download Manager",
+ "app_version": "4.1.0",
+ "generated": "2026-10-24T01:17:11",
+ "components": [
   {
-    "name": "yt-dlp",
-    "version": "2026.8.19",
-    "license": "Unlicense",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "annotated-doc-0.0.5",
+   "name": "annotated-doc",
+   "kind": "python-package",
+   "version": "0.0.5",
+   "author": "Sebastián Ramírez",
+   "license": "MIT",
+   "repository": "https://github.com/fastapi/annotated-doc",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "annotated-doc-0.0.5/LICENSE"
+   ]
   },
   {
-    "name": "yt-dlp-ejs",
-    "version": "0.8.0",
-    "license": "Unlicense AND MIT AND ISC",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "annotated-types-0.8.0",
+   "name": "annotated-types",
+   "kind": "python-package",
+   "version": "0.8.0",
+   "author": "Adrian Garcia Badaracco, Samuel Colvin, Zac Hatfield-Dodds",
+   "license": "MIT",
+   "repository": "https://github.com/annotated-types/annotated-types",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "annotated-types-0.8.0/LICENSE"
+   ]
   },
   {
-    "name": "deno",
-    "version": "2.9.7",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "anyio-4.15.1",
+   "name": "anyio",
+   "kind": "python-package",
+   "version": "4.15.1",
+   "author": "Alex Grönholm",
+   "license": "MIT",
+   "repository": "https://github.com/agronholm/anyio",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "anyio-4.15.1/LICENSE"
+   ]
   },
   {
-    "name": "customtkinter",
-    "version": "6.0.0",
-    "license": "Creative Commons Zero v1.0 Universal",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "brotli-1.2.1",
+   "name": "brotli",
+   "kind": "python-package",
+   "version": "1.2.1",
+   "author": "The Brotli Authors",
+   "license": "MIT",
+   "repository": "https://github.com/google/brotli",
+   "homepage": "https://github.com/google/brotli",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "brotli-1.2.1/LICENSE"
+   ]
   },
   {
-    "name": "darkdetect",
-    "version": "0.8.0",
-    "license": "BSD-3-Clause",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "certifi-2026.10.23",
+   "name": "certifi",
+   "kind": "python-package",
+   "version": "2026.10.23",
+   "author": "Kenneth Reitz",
+   "license": "MPL-2.0",
+   "repository": "https://github.com/certifi/python-certifi",
+   "homepage": "https://github.com/certifi/python-certifi",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "certifi-2026.10.23/LICENSE",
+    "certifi-2026.10.23/MPL-2.0.txt"
+   ]
   },
   {
-    "name": "packaging",
-    "version": "26.3",
-    "license": "Apache-2.0 OR BSD-2-Clause",
-    "files": [
-      "LICENSE",
-      "LICENSE.APACHE",
-      "LICENSE.BSD"
-    ]
+   "id": "charset-normalizer-3.5.2",
+   "name": "charset-normalizer",
+   "kind": "python-package",
+   "version": "3.5.2",
+   "author": "Ahmed R. TAHRI",
+   "license": "MIT",
+   "repository": "https://github.com/jawah/charset_normalizer",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "charset-normalizer-3.5.2/LICENSE"
+   ]
   },
   {
-    "name": "pillow",
-    "version": "13.0.0",
-    "license": "MIT-CMU",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "click-8.5.0",
+   "name": "click",
+   "kind": "python-package",
+   "version": "8.5.0",
+   "author": "Pallets",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/pallets/click",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "click-8.5.0/LICENSE.txt"
+   ]
   },
   {
-    "name": "pywin32",
-    "version": "312",
-    "license": "PSF",
-    "files": [
-      "license.txt",
-      "com-License.txt",
-      "LICENSE",
-      "pythonwin-License.txt",
-      "Scintilla-License.txt",
-      "idle-LICENSE.txt",
-      "win32-License.txt"
-    ]
+   "id": "customtkinter-6.0.0",
+   "name": "customtkinter",
+   "kind": "python-package",
+   "version": "6.0.0",
+   "author": "Tom Schimansky",
+   "license": "MIT",
+   "repository": "https://github.com/TomSchimansky/CustomTkinter",
+   "homepage": "https://customtkinter.tomschimansky.com",
+   "bundled_as": "Python package inside _internal",
+   "note": "Package metadata says CC0; the shipped LICENSE file is MIT.",
+   "license_files": [
+    "customtkinter-6.0.0/LICENSE"
+   ]
   },
   {
-    "name": "pystray",
-    "version": "0.19.5",
-    "license": "LGPLv3",
-    "files": [
-      "COPYING",
-      "COPYING.LGPL"
-    ]
+   "id": "darkdetect-0.8.0",
+   "name": "darkdetect",
+   "kind": "python-package",
+   "version": "0.8.0",
+   "author": "Alberto Sottile",
+   "license": "BSD-3-Clause",
+   "repository": "http://github.com/albertosottile/darkdetect",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "darkdetect-0.8.0/LICENSE"
+   ]
   },
   {
-    "name": "six",
-    "version": "1.17.0",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "fastapi-0.161.1",
+   "name": "fastapi",
+   "kind": "python-package",
+   "version": "0.161.1",
+   "author": "Sebastián Ramírez",
+   "license": "MIT",
+   "repository": "https://github.com/fastapi/fastapi",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "fastapi-0.161.1/LICENSE"
+   ]
   },
   {
-    "name": "win11toast",
-    "version": "0.36.3",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "h11-0.16.0",
+   "name": "h11",
+   "kind": "python-package",
+   "version": "0.16.0",
+   "author": "Nathaniel J. Smith",
+   "license": "MIT",
+   "repository": "https://github.com/python-hyper/h11",
+   "homepage": "https://github.com/python-hyper/h11",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "h11-0.16.0/LICENSE.txt"
+   ]
   },
   {
-    "name": "winrt-runtime",
-    "version": "3.2.1",
-    "license": "MIT",
-    "files": [
-      "pywinrt-LICENSE.txt"
-    ]
+   "id": "idna-3.20",
+   "name": "idna",
+   "kind": "python-package",
+   "version": "3.20",
+   "author": "Kim Davies",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/kjd/idna",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "idna-3.20/LICENSE.md"
+   ]
   },
   {
-    "name": "fastapi",
-    "version": "0.161.1",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "libtorrent-2.1.1",
+   "name": "libtorrent",
+   "kind": "python-package",
+   "version": "2.1.1",
+   "author": "Arvid Norberg",
+   "license": "BSD-3-Clause AND BSL-1.0 AND Apache-2.0",
+   "repository": "https://github.com/arvidn/libtorrent",
+   "homepage": "http://libtorrent.org",
+   "bundled_as": "Python package inside _internal",
+   "note": "The wheel statically links Boost (BSL-1.0) and OpenSSL 3 (Apache-2.0).",
+   "license_files": [
+    "libtorrent-2.1.1/libtorrent-LICENSE.txt",
+    "libtorrent-2.1.1/boost-LICENSE_1_0.txt",
+    "libtorrent-2.1.1/openssl-LICENSE.txt"
+   ]
   },
   {
-    "name": "starlette",
-    "version": "1.9.0",
-    "license": "BSD-3-Clause",
-    "files": [
-      "LICENSE.md"
-    ]
+   "id": "opentelemetry-api-1.45.1",
+   "name": "opentelemetry-api",
+   "kind": "python-package",
+   "version": "1.45.1",
+   "author": "OpenTelemetry Authors",
+   "license": "Apache-2.0",
+   "repository": "https://github.com/open-telemetry/opentelemetry-python",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "opentelemetry-api-1.45.1/LICENSE"
+   ]
   },
   {
-    "name": "pydantic",
-    "version": "2.14.1",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "packaging-26.3",
+   "name": "packaging",
+   "kind": "python-package",
+   "version": "26.3",
+   "author": "Donald Stufft",
+   "license": "Apache-2.0 OR BSD-2-Clause",
+   "repository": "https://github.com/pypa/packaging",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "packaging-26.3/LICENSE",
+    "packaging-26.3/LICENSE.APACHE",
+    "packaging-26.3/LICENSE.BSD"
+   ]
   },
   {
-    "name": "pydantic_core",
-    "version": "2.50.1",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "pillow-13.0.0",
+   "name": "pillow",
+   "kind": "python-package",
+   "version": "13.0.0",
+   "author": "Jeffrey 'Alex' Clark",
+   "license": "MIT-CMU",
+   "repository": "https://github.com/python-pillow/Pillow",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "pillow-13.0.0/LICENSE"
+   ]
   },
   {
-    "name": "annotated-types",
-    "version": "0.8.0",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "pycryptodomex-3.24.1",
+   "name": "pycryptodomex",
+   "kind": "python-package",
+   "version": "3.24.1",
+   "author": "Helder Eijs",
+   "license": "BSD-2-Clause AND LicenseRef-Public-Domain",
+   "repository": "https://github.com/Legrandin/pycryptodome",
+   "homepage": "https://www.pycryptodome.org",
+   "bundled_as": "Python package inside _internal",
+   "note": "Partly public domain, partly BSD-2-Clause (see LICENSE.rst).",
+   "license_files": [
+    "pycryptodomex-3.24.1/LICENSE.rst"
+   ]
   },
   {
-    "name": "annotated-doc",
-    "version": "0.0.5",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "pydantic-2.14.1",
+   "name": "pydantic",
+   "kind": "python-package",
+   "version": "2.14.1",
+   "author": "Samuel Colvin, Eric Jolibois, Hasan Ramezani, Adrian Garcia Badaracco, Terrence Dorsey, David Montague, Serge Matveenko, Marcelo Trylesinski, Sydney Runkle, David Hewitt, Alex Hall, Victorien Plot",
+   "license": "MIT",
+   "repository": "https://github.com/pydantic/pydantic",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "pydantic-2.14.1/LICENSE"
+   ]
   },
   {
-    "name": "typing_extensions",
-    "version": "4.16.0",
-    "license": "PSF-2.0",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "pydantic_core-2.50.1",
+   "name": "pydantic_core",
+   "kind": "python-package",
+   "version": "2.50.1",
+   "author": "Samuel Colvin, Adrian Garcia Badaracco, David Montague, David Hewitt, Sydney Runkle, Victorien Plot",
+   "license": "MIT",
+   "repository": "https://github.com/pydantic/pydantic-core",
+   "homepage": "https://github.com/pydantic/pydantic",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "pydantic_core-2.50.1/LICENSE"
+   ]
   },
   {
-    "name": "typing-inspection",
-    "version": "0.4.4",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "pystray-0.19.5",
+   "name": "pystray",
+   "kind": "python-package",
+   "version": "0.19.5",
+   "author": "Moses Palmér",
+   "license": "LGPL-3.0-only",
+   "repository": "https://github.com/moses-palmer/pystray",
+   "homepage": "https://github.com/moses-palmer/pystray",
+   "bundled_as": "Python package inside _internal",
+   "note": "Shipped as plain, replaceable .py files (LGPL requirement). Metadata: LGPLv3.",
+   "license_files": [
+    "pystray-0.19.5/COPYING",
+    "pystray-0.19.5/COPYING.LGPL"
+   ]
   },
   {
-    "name": "anyio",
-    "version": "4.15.1",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "pywin32-312",
+   "name": "pywin32",
+   "kind": "python-package",
+   "version": "312",
+   "author": "Mark Hammond (et al)",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/mhammond/pywin32",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "MDM bundles pywin32's win32, win32com and Pythonwin (win32ui) parts, which are BSD-3-Clause (Mark Hammond, Greg Stein). The other texts pywin32 ships (MIT, PSF, LGPL-2.1 for adodbapi, Scintilla) are included as distributed; adodbapi isn't bundled.",
+   "license_files": [
+    "pywin32-312/license.txt",
+    "pywin32-312/com-License.txt",
+    "pywin32-312/LICENSE",
+    "pywin32-312/pythonwin-License.txt",
+    "pywin32-312/Scintilla-License.txt",
+    "pywin32-312/idle-LICENSE.txt",
+    "pywin32-312/win32-License.txt"
+   ]
   },
   {
-    "name": "idna",
-    "version": "3.20",
-    "license": "BSD-3-Clause",
-    "files": [
-      "LICENSE.md"
-    ]
+   "id": "requests-2.34.2",
+   "name": "requests",
+   "kind": "python-package",
+   "version": "2.34.2",
+   "author": "Kenneth Reitz",
+   "license": "Apache-2.0",
+   "repository": "https://github.com/psf/requests",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "requests-2.34.2/LICENSE",
+    "requests-2.34.2/NOTICE"
+   ]
   },
   {
-    "name": "h11",
-    "version": "0.16.0",
-    "license": "MIT",
-    "files": [
-      "LICENSE.txt"
-    ]
+   "id": "six-1.17.0",
+   "name": "six",
+   "kind": "python-package",
+   "version": "1.17.0",
+   "author": "Benjamin Peterson",
+   "license": "MIT",
+   "repository": "https://github.com/benjaminp/six",
+   "homepage": "https://github.com/benjaminp/six",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "six-1.17.0/LICENSE"
+   ]
   },
   {
-    "name": "click",
-    "version": "8.5.0",
-    "license": "BSD-3-Clause",
-    "files": [
-      "LICENSE.txt"
-    ]
+   "id": "starlette-1.9.0",
+   "name": "starlette",
+   "kind": "python-package",
+   "version": "1.9.0",
+   "author": "Tom Christie",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/Kludex/starlette",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "starlette-1.9.0/LICENSE.md"
+   ]
   },
   {
-    "name": "colorama",
-    "version": "0.4.6",
-    "license": "",
-    "files": [
-      "LICENSE.txt"
-    ]
+   "id": "typing-inspection-0.4.4",
+   "name": "typing-inspection",
+   "kind": "python-package",
+   "version": "0.4.4",
+   "author": "Victorien Plot",
+   "license": "MIT",
+   "repository": "https://github.com/pydantic/typing-inspection",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "typing-inspection-0.4.4/LICENSE"
+   ]
   },
   {
-    "name": "uvicorn",
-    "version": "0.54.0",
-    "license": "BSD-3-Clause",
-    "files": [
-      "LICENSE.md"
-    ]
+   "id": "typing_extensions-4.16.0",
+   "name": "typing_extensions",
+   "kind": "python-package",
+   "version": "4.16.0",
+   "author": "Guido van Rossum, Jukka Lehtosalo, Łukasz Langa, Michael Lee",
+   "license": "PSF-2.0",
+   "repository": "https://github.com/python/typing_extensions",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "typing_extensions-4.16.0/LICENSE"
+   ]
   },
   {
-    "name": "opentelemetry-api",
-    "version": "1.45.1",
-    "license": "Apache-2.0",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "urllib3-2.8.0",
+   "name": "urllib3",
+   "kind": "python-package",
+   "version": "2.8.0",
+   "author": "Andrey Petrov",
+   "license": "MIT",
+   "repository": "https://github.com/urllib3/urllib3",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "urllib3-2.8.0/LICENSE.txt"
+   ]
   },
   {
-    "name": "requests",
-    "version": "2.34.2",
-    "license": "Apache-2.0",
-    "files": [
-      "LICENSE",
-      "NOTICE"
-    ]
+   "id": "uvicorn-0.54.0",
+   "name": "uvicorn",
+   "kind": "python-package",
+   "version": "0.54.0",
+   "author": "Tom Christie",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/Kludex/uvicorn",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "uvicorn-0.54.0/LICENSE.md"
+   ]
   },
   {
-    "name": "urllib3",
-    "version": "2.8.0",
-    "license": "MIT",
-    "files": [
-      "LICENSE.txt"
-    ]
+   "id": "websockets-17.3",
+   "name": "websockets",
+   "kind": "python-package",
+   "version": "17.3",
+   "author": "Aymeric Augustin",
+   "license": "BSD-3-Clause",
+   "repository": "https://github.com/python-websockets/websockets",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "websockets-17.3/LICENSE"
+   ]
   },
   {
-    "name": "certifi",
-    "version": "2026.10.23",
-    "license": "MPL-2.0",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "win11toast-0.36.3",
+   "name": "win11toast",
+   "kind": "python-package",
+   "version": "0.36.3",
+   "author": "Tomofumi Inoue",
+   "license": "MIT",
+   "repository": "https://github.com/GitHub30/win11toast",
+   "homepage": "https://github.com/GitHub30/win11toast",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "win11toast-0.36.3/LICENSE"
+   ]
   },
   {
-    "name": "charset-normalizer",
-    "version": "3.5.2",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "winrt-runtime-3.2.1",
+   "name": "winrt-runtime",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-runtime-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "brotli",
-    "version": "1.2.1",
-    "license": "MIT",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "winrt-Windows.Data.Xml.Dom-3.2.1",
+   "name": "winrt-Windows.Data.Xml.Dom",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Data.Xml.Dom-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "pycryptodomex",
-    "version": "3.24.1",
-    "license": "BSD, Public Domain",
-    "files": [
-      "AUTHORS.rst",
-      "LICENSE.rst"
-    ]
+   "id": "winrt-Windows.Foundation-3.2.1",
+   "name": "winrt-Windows.Foundation",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Foundation-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "websockets",
-    "version": "17.3",
-    "license": "BSD-3-Clause",
-    "files": [
-      "LICENSE"
-    ]
+   "id": "winrt-Windows.Foundation.Collections-3.2.1",
+   "name": "winrt-Windows.Foundation.Collections",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Foundation.Collections-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "libtorrent",
-    "version": "2.1.1",
-    "license": "BSD",
-    "files": [
-      "libtorrent-LICENSE.txt",
-      "boost-LICENSE_1_0.txt",
-      "openssl-LICENSE.txt"
-    ]
+   "id": "winrt-Windows.Globalization-3.2.1",
+   "name": "winrt-Windows.Globalization",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Globalization-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "AB Download Manager (design reference; techniques adapted, no code copied)",
-    "version": "1.11.1",
-    "license": "Apache-2.0",
-    "files": [
-      "LICENSE.txt"
-    ]
+   "id": "winrt-Windows.Graphics.Imaging-3.2.1",
+   "name": "winrt-Windows.Graphics.Imaging",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Graphics.Imaging-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "Python (incl. Tcl/Tk, OpenSSL, libffi, SQLite, zlib, bzip2, xz)",
-    "version": "3.12.10",
-    "license": "PSF-2.0 (+ component licenses in LICENSE.txt)",
-    "files": [
-      "LICENSE.txt",
-      "tk8.6-license.terms"
-    ]
+   "id": "winrt-Windows.Media.Core-3.2.1",
+   "name": "winrt-Windows.Media.Core",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Media.Core-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "ffmpeg (executable)",
-    "version": "see SOURCE.txt",
-    "license": "LGPL-3.0-or-later",
-    "files": [
-      "LICENSE.txt",
-      "SOURCE.txt"
-    ]
+   "id": "winrt-Windows.Media.Ocr-3.2.1",
+   "name": "winrt-Windows.Media.Ocr",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Media.Ocr-3.2.1/pywinrt-LICENSE.txt"
+   ]
   },
   {
-    "name": "deno (executable)",
-    "version": "see SOURCE.txt",
-    "license": "MIT",
-    "files": [
-      "LICENSE.md",
-      "SOURCE.txt"
-    ]
+   "id": "winrt-Windows.Media.Playback-3.2.1",
+   "name": "winrt-Windows.Media.Playback",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Media.Playback-3.2.1/pywinrt-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "winrt-Windows.Media.SpeechSynthesis-3.2.1",
+   "name": "winrt-Windows.Media.SpeechSynthesis",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Media.SpeechSynthesis-3.2.1/pywinrt-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "winrt-Windows.Storage-3.2.1",
+   "name": "winrt-Windows.Storage",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Storage-3.2.1/pywinrt-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "winrt-Windows.Storage.Streams-3.2.1",
+   "name": "winrt-Windows.Storage.Streams",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Storage.Streams-3.2.1/pywinrt-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "winrt-Windows.UI.Notifications-3.2.1",
+   "name": "winrt-Windows.UI.Notifications",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.UI.Notifications-3.2.1/pywinrt-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "yt-dlp-2026.8.19",
+   "name": "yt-dlp",
+   "kind": "python-package",
+   "version": "2026.8.19",
+   "author": "pukkandan",
+   "license": "Unlicense",
+   "repository": "https://github.com/yt-dlp/yt-dlp",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "yt-dlp-2026.8.19/LICENSE"
+   ]
+  },
+  {
+   "id": "yt-dlp-ejs-0.8.0",
+   "name": "yt-dlp-ejs",
+   "kind": "python-package",
+   "version": "0.8.0",
+   "author": "Simon Sawicki",
+   "license": "Unlicense AND MIT AND ISC",
+   "repository": "https://github.com/yt-dlp/ejs",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "Its solver script bundles meriyah (ISC) and astring (MIT); their license header is extracted verbatim from the shipped lib.min.js.",
+   "license_files": [
+    "yt-dlp-ejs-0.8.0/LICENSE",
+    "yt-dlp-ejs-0.8.0/bundled-dependencies-header.txt"
+   ]
+  },
+  {
+   "id": "meriyah-6.1.4",
+   "name": "meriyah",
+   "kind": "bundled-javascript",
+   "version": "6.1.4",
+   "author": "Kenny F.",
+   "license": "ISC",
+   "repository": "https://github.com/meriyah/meriyah",
+   "homepage": "",
+   "bundled_as": "inside yt-dlp-ejs's lib.min.js",
+   "note": "License header taken verbatim from the shipped file.",
+   "license_files": [
+    "meriyah-6.1.4/LICENSE.txt"
+   ]
+  },
+  {
+   "id": "astring-1.9.0",
+   "name": "astring",
+   "kind": "bundled-javascript",
+   "version": "1.9.0",
+   "author": "David Bonnet",
+   "license": "MIT",
+   "repository": "https://github.com/davidbonnet/astring",
+   "homepage": "",
+   "bundled_as": "inside yt-dlp-ejs's lib.min.js",
+   "note": "License header taken verbatim from the shipped file.",
+   "license_files": [
+    "astring-1.9.0/LICENSE.txt"
+   ]
+  },
+  {
+   "id": "python-3.12.10",
+   "name": "Python",
+   "author": "Python Software Foundation",
+   "spdx": "PSF-2.0",
+   "repo": "https://github.com/python/cpython",
+   "bundled_as": "python312.dll + standard library",
+   "note": "LICENSE.txt also carries the terms for the Microsoft Visual C++ runtime DLLs shipped with Python.",
+   "kind": "runtime",
+   "version": "3.12.10",
+   "license": "PSF-2.0",
+   "repository": "https://github.com/python/cpython",
+   "homepage": "https://www.python.org",
+   "license_files": [
+    "python-3.12.10/LICENSE.txt"
+   ]
+  },
+  {
+   "id": "msvc-runtime",
+   "name": "Microsoft Visual C++ Runtime / Universal CRT",
+   "author": "Microsoft Corporation",
+   "spdx": "LicenseRef-Microsoft-Distributable-Code",
+   "repo": "",
+   "homepage": "https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files",
+   "bundled_as": "VCRUNTIME140*.dll, MSVCP140.dll, ucrtbase.dll, api-ms-win-*.dll",
+   "note": "Redistributed under the 'Distributable Code' conditions included in Python's LICENSE.txt.",
+   "kind": "runtime",
+   "version": "as shipped with Python 3.12.10",
+   "license": "LicenseRef-Microsoft-Distributable-Code",
+   "repository": "",
+   "license_files": [
+    "msvc-runtime/LICENSE.txt"
+   ]
+  },
+  {
+   "id": "openssl",
+   "name": "OpenSSL",
+   "kind": "native-library",
+   "version": "3.0.16",
+   "author": "The OpenSSL Project Authors",
+   "license": "Apache-2.0",
+   "repository": "https://github.com/openssl/openssl",
+   "homepage": "",
+   "bundled_as": "libcrypto-3.dll, libssl-3.dll (Python's ssl/hashlib)",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "openssl/openssl-3.0.16-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "sqlite",
+   "name": "SQLite",
+   "kind": "native-library",
+   "version": "3.49.1",
+   "author": "D. Richard Hipp and SQLite contributors",
+   "license": "blessing",
+   "repository": "https://sqlite.org/src",
+   "homepage": "",
+   "bundled_as": "sqlite3.dll",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "sqlite/sqlite-public-domain.txt"
+   ]
+  },
+  {
+   "id": "tcl",
+   "name": "Tcl",
+   "kind": "native-library",
+   "version": "8.6.15",
+   "author": "Regents of the University of California, Sun Microsystems, et al.",
+   "license": "TCL",
+   "repository": "https://github.com/tcltk/tcl",
+   "homepage": "",
+   "bundled_as": "tcl86t.dll + _tcl_data",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "tcl/tcl-8.6.15-license.terms"
+   ]
+  },
+  {
+   "id": "tk",
+   "name": "Tk",
+   "kind": "native-library",
+   "version": "8.6.15",
+   "author": "Regents of the University of California, Sun Microsystems, et al.",
+   "license": "TCL",
+   "repository": "https://github.com/tcltk/tk",
+   "homepage": "",
+   "bundled_as": "tk86t.dll + _tk_data",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "tk/license.terms"
+   ]
+  },
+  {
+   "id": "zlib",
+   "name": "zlib",
+   "kind": "native-library",
+   "version": "1.3.1",
+   "author": "Jean-loup Gailly and Mark Adler",
+   "license": "Zlib",
+   "repository": "https://github.com/madler/zlib",
+   "homepage": "",
+   "bundled_as": "inside python312.dll",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "zlib/zlib-1.3.1-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "libffi",
+   "name": "libffi",
+   "kind": "native-library",
+   "version": "3.4.4",
+   "author": "Anthony Green, Red Hat, Inc and others",
+   "license": "MIT",
+   "repository": "https://github.com/libffi/libffi",
+   "homepage": "",
+   "bundled_as": "libffi-8.dll (ctypes)",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "libffi/libffi-3.4.4-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "expat",
+   "name": "Expat",
+   "kind": "native-library",
+   "version": "2.7.1",
+   "author": "Thai Open Source Software Center Ltd, Clark Cooper, Expat maintainers",
+   "license": "MIT",
+   "repository": "https://github.com/libexpat/libexpat",
+   "homepage": "",
+   "bundled_as": "pyexpat.pyd",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "expat/expat-2.7.1-COPYING.txt"
+   ]
+  },
+  {
+   "id": "bzip2",
+   "name": "bzip2",
+   "kind": "native-library",
+   "version": "1.0.8",
+   "author": "Julian Seward",
+   "license": "bzip2-1.0.6",
+   "repository": "https://gitlab.com/bzip2/bzip2",
+   "homepage": "",
+   "bundled_as": "_bz2.pyd",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "bzip2/bzip2-1.0.8-LICENSE.txt"
+   ]
+  },
+  {
+   "id": "xz",
+   "name": "XZ Utils (liblzma)",
+   "kind": "native-library",
+   "version": "5.2.5",
+   "author": "Lasse Collin and XZ Utils contributors",
+   "license": "LicenseRef-Public-Domain",
+   "repository": "https://github.com/tukaani-project/xz",
+   "homepage": "",
+   "bundled_as": "_lzma.pyd",
+   "note": "Bundled by the Python 3.12.10 Windows runtime.",
+   "license_files": [
+    "xz/xz-5.2.5-COPYING.txt"
+   ]
+  },
+  {
+   "id": "ffmpeg",
+   "name": "FFmpeg / FFprobe",
+   "kind": "executable",
+   "version": "n9.0.2-22-g46d8f462ee",
+   "author": "The FFmpeg developers",
+   "license": "LGPL-3.0-or-later",
+   "repository": "https://git.ffmpeg.org/ffmpeg.git",
+   "homepage": "",
+   "bundled_as": "tools/ffmpeg (separate executables + DLLs)",
+   "note": "BtbN LGPL shared build (built with --enable-version3; no GPL or non-free parts). Source location in SOURCE.txt.",
+   "license_files": [
+    "ffmpeg/LICENSE.txt",
+    "ffmpeg/SOURCE.txt"
+   ]
+  },
+  {
+   "id": "deno",
+   "name": "Deno",
+   "kind": "executable",
+   "version": "2.9.7",
+   "author": "the Deno authors",
+   "license": "MIT",
+   "repository": "https://github.com/denoland/deno",
+   "homepage": "",
+   "bundled_as": "tools/deno/deno.exe (runs yt-dlp's YouTube scripts, sandboxed)",
+   "note": "",
+   "license_files": [
+    "deno/LICENSE.md",
+    "deno/SOURCE.txt"
+   ]
+  },
+  {
+   "id": "ab-download-manager",
+   "name": "AB Download Manager (design reference)",
+   "kind": "design-reference",
+   "version": "1.11.1",
+   "author": "AmirHossein Abdolmotallebi",
+   "license": "Apache-2.0",
+   "repository": "https://github.com/amir1376/ab-download-manager",
+   "homepage": "https://abdownloadmanager.com",
+   "bundled_as": "not bundled - techniques adapted, no code copied",
+   "note": "Credited for the download-engine, queue and UI techniques MDM adapted.",
+   "license_files": [
+    "ab-download-manager/ab-download-manager-LICENSE.txt"
+   ]
   }
-]
+ ]
+}

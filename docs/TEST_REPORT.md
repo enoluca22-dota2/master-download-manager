@@ -1,160 +1,221 @@
-# Test report — Master Download Manager 4.0.0
+# Test report — Master Download Manager 4.1.0
 
-Machine: Windows 11 Pro 10.0.26200, 12 logical cores, Python 3.12.10.
-Date: 2026-10-23. Every number below was measured in this session; nothing is
-estimated. "Packaged" means the PyInstaller build in `dist/` or the installed
-app, not the Python source.
+Machine: Windows 11 Pro 10.0.26200, Python 3.12.10. Date: 2026-10-24.
+Every result below was produced in this session. "Packaged" means the
+PyInstaller build in `dist/` or the installed app, not the Python source.
+The 4.0.0 report is in the git history (`git show v4.0.0:docs/TEST_REPORT.md`).
 
 ## 1. Summary
 
 | Suite | Target | Result |
 |---|---|---|
-| Baseline before any change (3.0.0) | source | **292 / 292 passed** |
-| Automated tests (`pytest tests`) | source | **354 / 354 passed** (final run, after the release-updater tests were added) |
-| GUI smoke (`tools/gui_smoke.py`) | real window, source | **25 / 25** |
-| Real-world downloads (`tools/real_world_test.py`) | packaged 4.0.0, internet | **22 / 22** |
-| Extension regression (`tools/browser_extension_test.py`) | packaged app + Chromium + YouTube | **15 / 15** |
-| Extension 4.0 features (`tools/browser_capture_test.py`) | packaged app + Chromium | **8 / 8** |
-| Installer lifecycle (`tools/installer_test.ps1`) | isolated installer variant | **23 / 23** |
+| Automated tests (`pytest tests`) | source | **373 / 373 passed** (final run, 88 s) |
+| 4.1 GUI checks (`tools/gui_smoke41.py`) | real window, source | **46 / 46** (3 consecutive runs green) |
+| 4.0 GUI regression (`tools/gui_smoke.py`) | real window, source | **25 / 25** |
+| License release gate (`collect_licenses.py --verify`) | packaged build | **passes**; blocks 5 / 5 injected faults and a stale build |
+| Installer lifecycle (`tools/installer_test.ps1`) | isolated installer variant, final build | **27 / 27** |
+| Setup wizard + uninstaller UI (`tools/installer_wizard_test.py`) | isolated variant, final build | **14 / 14** |
+| One-click update, end to end (`tools/update_e2e_test.py`) | real installers, installed app, local fake GitHub | **22 / 22** |
+| Signed manifest of the release vs. key bundled in the app | `dist/` | **verifies** |
+| Real upgrade 4.0.0 → 4.1.0 of the installed app | release installer, wizard | **passed** (§7) |
+| Real-world downloads (`tools/real_world_test.py`) | packaged 4.1.0, internet | **22 / 22** |
+| Extension regression (`tools/browser_extension_test.py`) | packaged 4.1.0 + Chromium + YouTube | **15 / 15** |
+| Extension capture (`tools/browser_capture_test.py`) | packaged 4.1.0 + Chromium | **8 / 8** |
 | Queue load / churn (`tools/perf_queue.py`) | source engine | **6 / 6** |
-| Real upgrade 3.0.0 → 4.0.0 of the installed app | release installer | **passed** (§6) |
 
-## 2. Automated tests (354)
+## 2. Automated tests (373)
 
-New in 4.0 (62 tests): `test_http_upgrades.py` (dynamic splitting, adaptive
-connections, checksum, Last-Modified, global limit, retry reset),
-`test_queues_scheduler.py` (queue CRUD/persistence, per-queue concurrency,
-priority + aging, scheduled starts, completion events, DST/sleep/catch-up,
-speed profiles, recurring downloads), `test_history_sqlite.py` (migration
-from 3.x JSON, search/filters, export/import incl. CSV formula guard, 20k
-rows), `test_api_v4.py` (auth on new endpoints, capture gating and probing,
-batch validation, queues, checksum/priority/connections validation),
-`test_extension_logic.py` (capture decision run in Node; manifests' permissions), `test_updater.py` additions (GitHub release → verified manifest; refusals),
-`test_settings.py` additions (BOM, corrupt file backup), router manifests.
+New in 4.1 — `tests/test_update41.py` (19 tests, against a local fake GitHub,
+no internet):
 
-Changed existing tests (intentional behaviour changes, not weakened checks):
+* no update when the latest equals the installed version; newer stable
+  release found and verified (size, notes, date);
+* an **older release is never offered** (no downgrade);
+* **beta** releases only on the beta channel;
+* **signature from another key** → shown, not installable;
+* release **without a signed manifest** → shown, `prepare` refuses it;
+* manifest SHA-256 ≠ `SHA256SUMS.txt` → not verified;
+* **missing installer asset** → error; release from **another repository**
+  → refused; release **without `html_url`** → refused;
+* **plain `http://`** refused outside a test profile; GitHub unreachable →
+  clean error;
+* **interrupted download** (connection dropped halfway) and **corrupt
+  download** (same size, other bytes) → refused, nothing left behind;
+* `prepare` backs up settings and the SQLite history (backup API) and
+  releases the update lock; `launch` passes `/SILENT … /MDMUPDATE=1
+  /WAITPID=<pid> /LOG=…`; an installer **modified after verification** is
+  refused;
+* a **second update attempt** while another process holds the lock is
+  refused; a stale lock from a dead process is taken over;
+* post-update check: success, failure (reported once), **damaged settings
+  restored from the backup**;
+* not enough disk space → clear error; the shipped public key loads.
 
-| Test | Change | Why |
+Flaky run observed: one full run had 3 torrent-integration failures
+(including `test_pause_resume_and_cancel_torrent`) and took 247 s instead of
+~88 s; the same tests passed alone and in the next full run. They depend on
+local peer timing under load; no torrent code changed in 4.1.
+
+## 3. GUI (real window)
+
+`tools/gui_smoke41.py` (46 checks, screenshots):
+
+* menu bar File / Tasks / Tools / Help; **all 65 menu entries are wired or
+  deliberately disabled** (0 without an action); 18 of them invoked, each
+  opens its window (Add Multiple URLs, History, Queue Manager, Scheduler,
+  Check File Integrity, Logs, the four guides, Licenses, Notices, Source
+  Code Information, What's New, Changelog, About);
+* status bar shows the central version; About shows version and copyright;
+* Licenses window: 61 components, search filters, sort toggles (natural
+  version order), every component has a license text, details window;
+* bundled docs readable; What's New shows the 4.1.0 section;
+* update dialog against the fake GitHub: "up to date"; "Update Available"
+  with exactly *Update Now / Remind Me Later / View Release Notes / Cancel*;
+  download + verification → "Update Ready to Install"; *Install and
+  Restart* hands over; **bad signature** → "Verification: FAILED — do not
+  install", only *Close / Report a Problem*; **unsigned** release → *Open
+  Release Page*, no *Update Now*; *Remind Me Later* snoozes that version;
+  *View Release Notes* opens the release page (browser calls are captured,
+  nothing is opened);
+* every Settings section opens; Settings → Updates shows version, last
+  check and status.
+
+`tools/gui_smoke.py` (4.0 regression, 25 checks) still passes, including
+the 3,007-row list: rebuild 71 ms, scroll 12.1 ms per frame.
+
+## 4. License gate
+
+`tools/collect_licenses.py --verify` runs inside `build.py exe` and compares
+the inventory with PyInstaller's actual output (`PYZ-00.toc`,
+`COLLECT-00.toc`, dist-info folders, native DLL markers). Negative test on the
+packaged build: removing `requests` from the inventory, a wrong Pillow
+version, an unknown license id for OpenSSL and an empty author for Deno gave
+**5 findings, exit 1 ("release blocked")**; an inventory that differs from the
+repository's (stale build) is also blocked. Restored → passes.
+
+## 5. Installer
+
+`tools/installer_test.ps1` (isolated variant: own name, AppId, mutex and data
+folder), **27 / 27**: clean install with components
+`app,startmenu,desktop,browser`; program, FFmpeg, deno, extensions, licenses,
+notices, docs, license inventory and update key installed; no
+Start-with-Windows shortcut unless chosen; one Installed Apps entry with
+version 4.1.0 and links; the installed app starts and downloads a file
+byte-exact; re-install with fewer components removes the extension files and
+the desktop shortcut, still one entry, data untouched; silent uninstall
+removes program, shortcuts and entry and keeps data and downloaded files.
+
+`tools/installer_wizard_test.py` drives the real wizard (Win32 messages,
+screenshots), **14 / 14**: opens directly on **Welcome** (no "for me / all
+users" question), **License Agreement** (information, no acceptance
+checkbox), **Choose Components** (descriptions, space required),
+**Installation Location** (new install; last page, *Install* button),
+**Installing** with *Show details* (file list), **Completing** with *Run*
+(ticked; the app started) and *Open the GitHub project page* (unticked).
+Interactive uninstall: the data question appears with **No** as the default
+button (screenshot); answering **Yes** removed MDM's settings, queue,
+history, corrupt-settings copies, logs and update backups, and **kept** a
+`my downloads\movie.mkv` and `notes.txt` placed in the data folder.
+
+Upgrade from 4.0.x: shortcut choices stored as 4.0 *tasks* carry over to the
+4.1 *components*. Checked with an isolated install whose registry says
+"Start Menu yes, Desktop no": the Components page showed Desktop unticked,
+Start Menu and Browser ticked.
+
+## 6. One-click update, end to end
+
+`tools/update_e2e_test.py` with real installers (test variant 4.1.0 → 4.2.0,
+plus a 4.3.0 built to fail), a throw-away signing key and a local fake
+GitHub, **22 / 22**:
+
+1. 4.1.0 installed silently and running; a real download completed.
+2. Closed normally; started with `--update-now --yes`: it found 4.2.0,
+   verified the signed manifest, downloaded and checked it, backed up its
+   state and exited (5 s).
+3. Setup waited for the PID, upgraded in place and started 4.2.0: **4.2.0
+   answering 21 s after the update began**.
+4. Installed Apps entry 4.2.0 (one entry); result "updated from 4.1.0 to
+   4.2.0"; installer log present; downloaded installer removed; backup
+   present; settings (token, custom values) unchanged; the earlier download
+   still listed through the API with the same token (browser pairing kept);
+   history rows unchanged; downloaded file byte-identical; same folder.
+5. Started again: already up to date, no second update.
+6. **Failing update** (4.3.0 Setup fails before installing): 4.2.0 started
+   again **7 s** later and reported "The update to 4.3.0 didn't complete;
+   version 4.2.0 is still installed and your data is unchanged"; Installed
+   Apps entry still 4.2.0; settings unchanged.
+
+## 7. Real upgrade of the installed app (4.0.0 → 4.1.0)
+
+Before: backups of the data folder and of the 4.0.0 program folder in
+`_backups/` (not in git). MDM 4.0.0 was no longer running at that point; its
+data had been saved cleanly at 01:20:48. The logs don't show why it exited
+(4.0 doesn't log exits, and none of the test installers' logs show them
+closing applications).
+
+`Master Download Manager Setup 4.1.0.exe` was run through the wizard
+(Welcome → License → Components, preselected as before: program, Start Menu,
+Desktop, Browser → Install → Finish with *Run*):
+
+| Check | Result |
+|---|---|
+| Installed Apps: one entry, version 4.1.0, same folder | pass |
+| Components recorded `app,startmenu,desktop,browser` (from 4.0's tasks) | pass |
+| 4.1.0 started by *Finish*; API answers with the existing token | pass |
+| Earlier settings (61 keys) | unchanged except `update_last_check`: 4.1 ran its first automatic check, "Up to date (4.1.0)", against the real GitHub (latest stable was 4.0.0) |
+| History rows | 3 → 3 |
+| Desktop and Start Menu shortcuts | present |
+| `magnet:` handler (Ant Download Manager, the user's choice) | untouched |
+| Docs, license inventory, update key, extensions 4.1.0 | installed |
+
+## 8. Real-world and browser tests (packaged 4.1.0, isolated profile)
+
+`tools/real_world_test.py` **22 / 22**: direct HTTP (python.org zip intact;
+pause at 8 MB, resume to the exact 26,964,224 bytes; cancel removes the
+partial file; 404 gives a readable reason and can be retried); YouTube (Big
+Buck Bunny: 19 real formats, no "missing JavaScript runtime" warning, 360p
+video merged to MP4, MP3 128 kbps); Sintel subtitles (29 languages, SRT,
+embedded in MKV); playlist (17 items; items 1–2 in order into a playlist
+folder); Debian netinst torrent (8 peers, 6.9 MB/s, pause, resume); "send
+link" auto-detects HTTP.
+
+`tools/browser_extension_test.py` **15 / 15** (connection, YouTube player
+button, drag and remembered position, real formats, playlist tab, context
+menu, token mismatch). `tools/browser_capture_test.py` **8 / 8** (capture of
+chosen types, browser copy cancelled, other types left alone, selected
+links in one batch, browser keeps the download while MDM is closed).
+
+The browser test tools crashed on the first try when printing "✓" to a
+cp1252 console; rerun with `PYTHONIOENCODING=utf-8`. That's a test-tool
+issue, not an app issue.
+
+## 9. Bugs found by testing and fixed before release
+
+| Found by | Bug | Fix |
 |---|---|---|
-| `test_history_capped_at_max_entries` | patches the cap to 25 instead of inserting 2,010 rows | cap raised from 2,000 to 100,000 (SQLite) |
-| `test_segmented_download_is_byte_exact`, `test_idle_connection_splits…`, `test_queue_connection_limit…` | set `http_adaptive_connections=False` | they test the fixed multi-connection mechanism; adaptive mode has its own tests |
+| GUI checks (hang) | Python's cyclic garbage collector ran in a background thread (update check) and freed a Tk font there → that thread deadlocked; the update dialog stayed on "Checking…" | automatic GC off; collection runs on the Tk thread every second (`app._collect_garbage`) |
+| GUI checks | Settings → Licenses crashed with the new inventory format | shared inventory loader |
+| GUI checks | callbacks bound with `lambda e:` were sometimes called without an event (TypeError) | `lambda e=None:` |
+| Screenshot review | Licenses search box showed no placeholder; versions sorted as text | no `textvariable`; natural sort |
+| Screenshot review | bad-signature releases offered "Open Release Page" as the main action | "FAILED — do not install", *Report a Problem* |
+| Wizard test | "Select Setup Install Mode" dialog before Welcome; all-users installs would need elevation for updates | per-user in the wizard; `/ALLUSERS` only on the command line |
+| Wizard test | Location page before Components; an extra "Information" page after installing; a separate "Ready" page; duplicated "Click Next/Finish" lines | own Location page after Components, *Install* on the last page, texts fixed |
+| Code review | uninstall "remove data" deleted the whole data folder (anything a user put there) | removes only MDM's own files and folders |
+| Code review | Setup failing before copying files wouldn't restart the old version | relaunch folder read from the registry at start |
+| Code review | 4.0 users' "no desktop shortcut" choice would be lost on upgrade | tasks carried over to components |
+| Code review | loopback `http://` update URLs accepted outside test profiles; release without `html_url` skipped the repository check | both refused |
+| Installer test | stale paths to license files after the inventory rework | fixed in docs and test |
+| Packaging review | `_backups/` (personal data) was not git-ignored | ignored |
+| Docs review | THIRD_PARTY_NOTICES listed outdated versions (e.g. FastAPI 0.142.2 vs 0.161.1 bundled) and pywin32 as PSF | synced with the inventory |
 
-### Flaky test observed
+## 10. Not tested / limits
 
-`tests/test_torrent_integration.py` (pre-existing, unchanged) failed in 2 of 7
-full-suite runs — both times while another CPU-heavy job ran in parallel
-(concurrent test runs / PyInstaller). The tests use fixed 10–90 s timeouts
-against rate-limited local seeders. Run alone on an idle machine:
-**5 / 5 runs × 26 tests passed**; all full-suite runs after 19:20 passed. Classified as
-load-sensitive test timing, not a product defect.
-
-## 3. Real-world downloads (packaged 4.0.0, internet)
-
-All 22 checks passed: python.org zip intact; HTTP pause at 7.9 MB of 27.0 MB
-and resume to the exact size; cancel removes partial files; 404 explained and
-retryable; YouTube (Big Buck Bunny, CC-BY) formats listed with no missing-JS
-warning, 360p merged to MP4, MP3 128 kbps; Sintel 29 subtitle languages, SRT
-download and MKV embedding; Blender playlist (17 items) items 1–2 in order;
-Debian 13.7 netinst `.torrent` URL parsed (792 MB), 13 peers at 5.5 MB/s,
-pause and resume; "send link" auto-detects HTTP.
-
-## 4. Performance (measured)
-
-### 4.1 Connections (`tools/benchmark_connections.py --internet --repeat 3`, medians)
-
-| Scenario | 1 | 2 | 4 | 8 | adaptive ≤ 8 (default) |
-|---|---|---|---|---|---|
-| python.org CDN, 26 MB | **1.82 s** | — | 2.07 s | 2.36 s | **1.85 s** |
-| every connection capped ~2 MB/s, 24 MB | 12.88 s | 6.63 s | 3.37 s | **2.36 s** | 5.12 s |
-| localhost, unthrottled, 48 MB* | 0.19 s | — | 0.43 s | 0.93 s | — |
-
-Dynamic splitting (4 connections, 24 MB, one slow quarter): **2.10 s on vs
-3.36 s off (1.60× faster)**.
-
-\* The unthrottled-localhost row is limited by the single-process Python test
-server, so it shows overhead, not real-world behaviour.
-
-Conclusions stated in the app and docs: more connections are **not** always
-faster. On a fast CDN one connection was best and a fixed 4 was 14% slower in this run (28% in an earlier run)
-(8: 30% slower); against servers that cap each connection, 8 connections were
-5.5× faster than one. The adaptive default matched the single connection on
-the CDN and was 2.5× faster than one on the capped server, but slower than a
-fixed 8 there on this short file (its ramp-up takes a few seconds).
-
-### 4.2 UI and data
-
-| Measurement | Result |
-|---|---|
-| 3,007-row download list: full rebuild | 71–73 ms |
-| 3,007-row list: scroll redraw | 10–12 ms per frame |
-| SQLite history, 20,000 rows: insert | 162 ms |
-| SQLite history, 20,000 rows: search + filter + full read | 83 ms |
-| Installed 4.0.0 idle (30 s, window open, nothing downloading) | 0.05 % of one core; 96 MB working set, 72 MB private; 14 threads |
-
-### 4.3 Queue load and lifecycle (`tools/perf_queue.py`)
-
-| Check | Result |
-|---|---|
-| 50 × 1 MB queued, max 10 concurrent | all byte-exact in 0.32 s (queued in 68 ms); peak concurrent ≤ 10 |
-| Threads after the queue drains | 0 job/connection threads left |
-| 30 pause/resume cycles on one 8 MB download | completed byte-exact (12.2 s) |
-| 20 cancels mid-download | all cancelled, no partial files left |
-| Threads after churn | none left (no zombie workers) |
-
-## 5. Installer (`tools/installer_test.ps1`, isolated variant)
-
-23/23: silent clean install (11 s); program, ffmpeg, deno, extension files,
-licenses (incl. AB Download Manager's) present; Start-menu and desktop
-shortcuts; one uninstall entry (4.0.0) with GitHub links; the **installed**
-exe starts, its API answers and it downloads a 12 MB file byte-exact; history
-database created; re-install with "program only" removes extension files and
-the unticked desktop shortcut and keeps one uninstall entry and the user data;
-silent uninstall removes program files (0 leftovers), shortcuts and the
-uninstall entry, and keeps user data and downloaded files.
-
-Wizard visuals checked: install-mode chooser and welcome page render in the
-dark "windows11" style with MDM artwork. The remaining pages were exercised
-through the silent install, not clicked through.
-
-## 6. Real upgrade of the installed app (3.0.0 → 4.0.0)
-
-Before: data folder backed up to `_backups/MDM-userdata-before-4.0-upgrade-2026-10-23`,
-app idle (0 jobs), state fingerprinted.
-
-| Check | Result |
-|---|---|
-| Release installer, silent, over 3.0.0 | exit 0 in 13 s; Setup closed and restarted MDM itself |
-| Installed version / uninstall entries | 4.0.0 / exactly one |
-| API token (extension pairing), port, download folder, theme | unchanged |
-| `download_history.json` | byte-identical (kept as backup) |
-| History in SQLite | 3 of 3 entries migrated, order kept |
-| Shortcuts | Start menu + desktop kept; duplicate legacy "— Licenses" shortcut removed |
-| App after upgrade | 4.0.0 running, API up on the same port, Main queue running |
-
-## 7. Bugs found by testing and fixed before release
-
-1. `settings.json` with a UTF-8 BOM was unreadable → defaults and a new token
-   were saved over the user's file (found by the installer test). Fixed:
-   `utf-8-sig` everywhere + backup of unreadable settings; regression tests added.
-2. Installer: associations matched by exe name only, so another copy could
-   remove this install's magnet/.torrent registration. Fixed (full path).
-3. Installer: re-install with fewer components/shortcuts left them behind;
-   empty extension folders created. Fixed and covered by the lifecycle test.
-4. Installer script without BOM → non-ASCII text would be mangled. Fixed.
-5. Default 4 fixed connections were 14–28% slower than 1 on a fast CDN (two runs). Fixed
-   with adaptive connections (benchmark §4.1).
-6. Batch list not shown, stale accent colour in dialogs, lost ttk styling,
-   dialog title bars — found in screenshots, fixed, re-verified.
-
-## 8. Not tested / needs manual validation
-
-| Item | Why |
-|---|---|
-| Firefox extension in a real Firefox | Firefox isn't installed on this PC (environment). Syntax-checked and logic-tested in Node; same code as the Chrome build except the manifest/background loader |
-| Clicking the real right-click menu entries | browsers don't expose extension context menus to automation; the menu handlers' functions were tested directly |
-| Sleep / hibernate / shutdown actually executing | not triggered on this PC; the countdown and cancel path are tested, `power.perform` uses fixed Windows APIs |
-| Real PC sleep/wake during a scheduled queue | simulated with clock intervals in unit tests |
-| High-DPI at 150–200 % scaling | tested at this PC's scaling only; layout metrics scale with CustomTkinter's factor |
-| Edge / Brave | same Chromium extension; not run separately |
-| Clean install on a PC that never had MDM | covered by the isolated variant on this PC, not on a fresh machine |
-| Code signing | no signing certificate is configured; artifacts are unsigned |
+* Authenticode: the build is unsigned (no certificate); the signing hook
+  wasn't exercised.
+* The in-app update from the real GitHub can be exercised only once a
+  version after 4.1.0 exists; it was tested against a local fake GitHub with
+  real installers.
+* Upgrading an **all-users** (`/ALLUSERS`) installation; behind a proxy; on
+  Windows 10.
+* Setup killed mid-copy (power loss): the next start reports "didn't
+  complete"; files may be mixed until Setup is run again.

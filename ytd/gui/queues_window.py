@@ -36,7 +36,7 @@ def _days_text(days):
 
 
 class QueuesWindow:
-    def __init__(self, app, queue_id=None):
+    def __init__(self, app, queue_id=None, page=None, tab=None):
         self.app = app
         self.manager = app.manager
         win = self.win = ctk.CTkToplevel(app.root)
@@ -44,7 +44,8 @@ class QueuesWindow:
         win.geometry("900x600")
         win.minsize(820, 520)
         app.apply_glass_window(win)
-        self.page = tk.StringVar(value="Queues")
+        self.page = tk.StringVar(value=page or "Queues")
+        self.initial_tab = tab
         top = ctk.CTkFrame(win, fg_color="transparent")
         top.pack(fill="x", padx=16, pady=(14, 8))
         ctk.CTkSegmentedButton(top, values=["Queues", "Speed profiles", "Recurring downloads"], variable=self.page,
@@ -62,6 +63,15 @@ class QueuesWindow:
         self._clear()
         {"Queues": self._queues_page, "Speed profiles": self._profiles_page,
          "Recurring downloads": self._recurring_page}[self.page.get()]()
+
+    def show(self, queue_id=None, page=None, tab=None):
+        """Bring a page/queue/tab to the front (Tasks/Tools menus)."""
+        if page:
+            self.page.set(page)
+        if queue_id:
+            self.selected_id = queue_id
+        self.initial_tab = tab
+        self._show_page()
 
     def select(self, queue_id):
         self.page.set("Queues")
@@ -106,10 +116,14 @@ class QueuesWindow:
                          height=30).pack(side="right")
 
         tabs = ctk.CTkTabview(right, height=420)
+        self.tabs = tabs
         tabs.pack(fill="both", expand=True, pady=(8, 0))
         self._settings_tab(tabs.add("Settings"), q)
         self._schedule_tab(tabs.add("Schedule"), q)
         self._items_tab(tabs.add("Downloads"), q)
+        if self.initial_tab in ("Settings", "Schedule", "Downloads"):
+            tabs.set(self.initial_tab)
+            self.initial_tab = None
 
     def _field(self, parent, label, widget_factory, hint=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")

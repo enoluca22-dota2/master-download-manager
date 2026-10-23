@@ -19,3 +19,6 @@ ytd.log
 # Packaged extension zips
 extension-chrome.zip
 extension-firefox.zip
+
+# Local backups of personal data and earlier builds - never commit
+_backups/

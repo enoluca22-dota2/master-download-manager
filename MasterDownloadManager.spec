@@ -10,6 +10,7 @@ datas = [
     ("mdm.png", "."),
     ("licenses", "licenses"),
     ("THIRD_PARTY_NOTICES.md", "."),
+    ("ytd/update_public_key.pem", "."),  # verifies signed update manifests
 ]
 binaries = []
 hiddenimports = [

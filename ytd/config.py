@@ -135,7 +135,12 @@ DEFAULT_SETTINGS = {
     "update_manifest_url": "",
     "update_source": "github",  # github | manifest
     "update_check_on_start": False,
+    "update_auto_check": True,  # check GitHub at most once a day (startup or while running); never installs by itself
+    "update_channel": "stable",  # stable | beta
     "update_last_check": 0,
+    "update_last_status": "",
+    "update_remind_version": "",
+    "update_remind_after": 0,
 }
 
 

@@ -1,0 +1,52 @@
+MASTER DOWNLOAD MANAGER - LICENSE INFORMATION
+
+Master Download Manager
+Copyright (c) 2026 the Master Download Manager author
+(https://github.com/enoluca22-dota2). All rights reserved.
+
+Master Download Manager's own program code is not released under an
+open-source license. The current terms for using and redistributing
+Master Download Manager are published at:
+https://github.com/enoluca22-dota2/master-download-manager/blob/main/docs/LICENSING.md
+
+This installer and the program are not digitally signed, so Windows may show
+a SmartScreen warning. Check the download against SHA256SUMS.txt on the
+release page if you want to verify it.
+
+
+THIRD-PARTY SOFTWARE
+
+Master Download Manager includes open-source software. Each component stays
+under its own license, which is NOT replaced by Master Download Manager's
+terms. The complete list (name, author, license, version, source) and the full
+license texts are installed with the program:
+
+  * Help -> View Open-Source Licenses (searchable list with full texts)
+  * the "licenses" folder and THIRD_PARTY_NOTICES.md in the installation folder
+
+Main components:
+
+  Python 3.12.10 ............ PSF-2.0       https://github.com/python/cpython
+  yt-dlp .................... Unlicense     https://github.com/yt-dlp/yt-dlp
+  libtorrent ................ BSD-3-Clause  https://github.com/arvidn/libtorrent
+  FFmpeg / FFprobe .......... LGPL-3.0+     https://git.ffmpeg.org/ffmpeg.git
+  Deno ...................... MIT           https://github.com/denoland/deno
+  CustomTkinter ............. MIT           https://github.com/TomSchimansky/CustomTkinter
+  FastAPI, Starlette, uvicorn MIT / BSD-3-Clause
+  requests, urllib3, certifi  Apache-2.0 / MIT / MPL-2.0
+  Pillow .................... MIT-CMU
+  pystray ................... LGPL-3.0      https://github.com/moses-palmer/pystray
+  OpenSSL, SQLite, Tcl/Tk, zlib and other libraries bundled with Python
+
+LGPL components (FFmpeg, pystray): they are shipped as separate, replaceable
+files (FFmpeg as its own executables and DLLs in tools\ffmpeg, pystray as plain
+Python files). Their source code is available from the links above; the exact
+FFmpeg build is identified in tools\ffmpeg\SOURCE.txt.
+
+Some download-engine and interface techniques were adapted from
+AB Download Manager (https://github.com/amir1376/ab-download-manager,
+Apache-2.0). Master Download Manager is an independent project and is not
+affiliated with AB Download Manager.
+
+Only download content you have the right to download. DRM-protected media is
+not supported and is never circumvented.

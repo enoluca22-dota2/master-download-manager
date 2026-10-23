@@ -16,12 +16,32 @@ Get the latest **`Master.Download.Manager.Setup.<version>.exe`** from
 [Releases](https://github.com/enoluca22-dota2/master-download-manager/releases)
 (per-user install, no admin needed) and check it against the release's
 `SHA256SUMS.txt`. The build is **not code-signed**, so Windows SmartScreen may
-ask for confirmation.
+ask for confirmation. Setup lets you choose the components (shortcuts, start
+with Windows, browser integration, `.torrent`/`magnet:` associations) —
+see [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 Installing over an earlier version upgrades it in place: settings, history,
-unfinished downloads and the browser-extension pairing are kept. The browser
-extension zips are attached to each release and are also in the app's
-`extensions\` folder.
+unfinished downloads and the browser-extension pairing are kept. From 4.1.0 on,
+**Help → Check for Updates** does this in one click
+([docs/UPDATING.md](docs/UPDATING.md)). The browser extension zips are attached
+to each release and are also in the app's `extensions\` folder.
+
+## What's new in 4.1
+
+* **One-click updates** — Update Now → Install and Restart. Updates are
+  installed only when their Ed25519-signed release manifest, size and SHA-256
+  verify; your data is backed up first. Stable and beta channels, daily check
+  (optional), never a downgrade. How it's secured:
+  [docs/UPDATE_SECURITY.md](docs/UPDATE_SECURITY.md).
+* **Professional Setup** — components with descriptions and sizes, install
+  details, run-after-install, clean uninstall that keeps your data unless you
+  say otherwise and never touches downloaded files.
+* **Menu bar** — File, Tasks, Tools, Help with shortcuts: multiple URLs,
+  import/export lists and settings, history window, file integrity check, log
+  viewer, documentation, About.
+* **Open-source licenses window** — all 61 bundled components with author,
+  license, version, source and full text; the inventory is verified against
+  every build.
 
 ## What's new in 4.0
 
@@ -44,8 +64,6 @@ extension zips are attached to each release and are also in the app's
 * **Browser extension** — download selected links, choose the queue, and
   (opt-in, off by default) hand normal browser downloads of chosen file types
   to MDM. No cookies or browsing history ever leave the browser.
-* **Updates** from GitHub Releases, verified by SHA-256 before you run them.
-
 Full list: [CHANGELOG.md](CHANGELOG.md) and `docs/`.
 
 ## Using it
@@ -91,8 +109,8 @@ python build.py test        # automated tests
 python build.py exe         # dist/MasterDownloadManager/MasterDownloadManager.exe
 python build.py installer   # dist/Master Download Manager Setup <version>.exe
 python build.py extensions  # extension zips
-python build.py checksums   # dist/SHA256SUMS.txt (the updater relies on it)
-python build.py all         # everything
+python build.py release-assets  # signed update manifest, release notes, licenses zip, SHA256SUMS
+python build.py all         # everything, with the license gate (collect_licenses.py --verify)
 ```
 
 Run from source: `.venv\Scripts\python master_download_manager.py`
@@ -100,10 +118,12 @@ Run from source: `.venv\Scripts\python master_download_manager.py`
 
 ## Testing
 
-* `python build.py test` — 354 automated tests (engines, queues, scheduler,
+* `python build.py test` — automated tests (count in `docs/TEST_REPORT.md`) (engines, queues, scheduler,
   history, API, routing, extension logic, safety), using local HTTP servers and
   local BitTorrent peers — no internet needed.
-* `tools/gui_smoke.py` — drives the real window (25 checks + screenshots).
+* `tools/gui_smoke.py`, `tools/gui_smoke41.py` — drive the real window
+  (menus, About, Licenses, update dialog against a local fake GitHub;
+  screenshots).
 * `tools/real_world_test.py` — real downloads through the packaged app
   (Creative Commons / official targets, 22 checks).
 * `tools/browser_extension_test.py`, `tools/browser_capture_test.py` — the
@@ -116,6 +136,12 @@ Results: `docs/TEST_REPORT.md`.
 
 ## Documentation
 
+* For users: [User Guide](docs/USER_GUIDE.md), [Installation](docs/INSTALLATION.md),
+  [Updating](docs/UPDATING.md), [Uninstallation](docs/UNINSTALLATION.md),
+  [Browser Integration](docs/BROWSER_INTEGRATION.md),
+  [Troubleshooting](docs/TROUBLESHOOTING.md) — also under Help → Documentation
+* [Licensing](docs/LICENSING.md), [Update security](docs/UPDATE_SECURITY.md),
+  [Release process](docs/RELEASE_PROCESS.md)
 * `docs/AB_MDM_COMPARISON.md` — feature-by-feature comparison with AB Download Manager
 * `docs/ARCHITECTURE_UPGRADE.md` — how 4.0 is built and why
 * `docs/FEATURE_IMPLEMENTATION.md` — every requirement and where it lives
@@ -126,7 +152,8 @@ Results: `docs/TEST_REPORT.md`.
 
 * YouTube changes regularly; keeping media downloads working means shipping
   updated builds with a newer yt-dlp.
-* The installer and program are not code-signed.
+* The installer and program are not code-signed (updates are verified with
+  the project's own signing key instead).
 * No mirror/multi-source downloads; no "slow down while I'm using the PC"
   detection (use speed profiles or Limited mode); English only.
 * The extension can't start MDM when it's closed (that would need Native
@@ -135,6 +162,14 @@ Results: `docs/TEST_REPORT.md`.
   bundled; Chromium browsers often lock their cookie store while running.
 * DRM-protected media is not supported. Only download content you have the
   right to download.
+
+## License
+
+Copyright (c) 2026 the Master Download Manager author. **All rights
+reserved** — the source is public but not released under an open-source
+license; see [docs/LICENSING.md](docs/LICENSING.md). Bundled third-party
+components keep their own licenses (Help → View Open-Source Licenses,
+`THIRD_PARTY_NOTICES.md`).
 
 Master Download Manager is not affiliated with AB Download Manager; some of
 its techniques were adapted from that Apache-2.0 project (see

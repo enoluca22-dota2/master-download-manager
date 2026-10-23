@@ -6,15 +6,23 @@ real Master Download Manager installation, its shortcuts or associations.
     powershell -ExecutionPolicy Bypass -File tools\installer_test.ps1 -Setup build\installer-test\MDM-InstallTest-Setup.exe
 
 Build the variant with:
-    ISCC /DAppVersion=4.0.0 /DSourceDir=dist\MasterDownloadManager "/DAppName=MDM Install Test"
+    ISCC /DAppVersion=<version> "/DSourceDir=<absolute path of dist\MasterDownloadManager>" "/DAppName=MDM Install Test"
          "/DAppIdGuid={{0D1B6E54-7F0A-4C55-9E7B-3C6A2E9D1F00}" "/DAppMutexName=Local\MDMInstallTest.Mutex"
-         /DOutputName=MDM-InstallTest-Setup /DInstallTest=1 /Obuild\installer-test installer\MasterDownloadManager.iss
+         /DDataFolder=MDMInstallTestData /DOutputName=MDM-InstallTest-Setup /DInstallTest=1
+         /Obuild\installer-test installer\MasterDownloadManager.iss
+(run it from PowerShell: Git Bash rewrites the /D arguments)
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Setup,
-    [string]$Python = "$PSScriptRoot\..\.venv\Scripts\python.exe"
+    [string]$Python = "",
+    [string]$Version = ""
 )
 $ErrorActionPreference = "Stop"
+if (-not $Python) { $Python = "$PSScriptRoot\..\.venv\Scripts\python.exe" }  # $PSScriptRoot is empty in param defaults on PS 5.1
+$Python = (Resolve-Path $Python).Path  # Start-Process can't run a path containing ".."
+if (-not $Version) {
+    $Version = ((Get-Content "$PSScriptRoot\..\ytd\__init__.py" | Select-String '__version__ = "(.+)"').Matches[0].Groups[1].Value)
+}
 $Name = "MDM Install Test"
 $UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{0D1B6E54-7F0A-4C55-9E7B-3C6A2E9D1F00}_is1"
 $Work = Join-Path $env:TEMP ("mdm-installer-test-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -29,10 +37,10 @@ function Check($label, $ok, $detail = "") {
     Write-Host ("{0}  {1}  {2}" -f $(if ($ok) { "PASS" } else { "FAIL" }), $label, $detail)
 }
 
-function Install($components, $tasks, $log) {
+function Install($components, $log) {
     $p = Start-Process -FilePath $Setup -PassThru -Wait -ArgumentList @(
         "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=`"$Dir`"",
-        "/COMPONENTS=`"$components`"", "/TASKS=`"$tasks`"", "/LOG=`"$log`"")
+        "/COMPONENTS=`"$components`"", "/LOG=`"$log`"")
     return $p.ExitCode
 }
 
@@ -40,16 +48,20 @@ New-Item -ItemType Directory -Force $Work, $Data | Out-Null
 try {
     # ---------------------------------------------------------------- clean install
     $t0 = Get-Date
-    $code = Install "app,browser" "startmenuicon,desktopicon" "$Work\install1.log"
+    $code = Install "app,startmenu,desktop,browser" "$Work\install1.log"
     Check "clean install exits 0" ($code -eq 0) "exit $code in $([int]((Get-Date) - $t0).TotalSeconds) s"
     Check "program installed" (Test-Path "$Dir\MasterDownloadManager.exe")
     Check "bundled tools installed (ffmpeg, deno)" ((Test-Path "$Dir\tools\ffmpeg\ffmpeg.exe") -and (Test-Path "$Dir\tools\deno\deno.exe"))
     Check "browser extension component installed" ((Test-Path "$Dir\extensions\chrome\manifest.json") -and (Test-Path "$Dir\extensions\firefox\manifest.json"))
-    Check "licenses and notices installed" ((Test-Path "$Dir\licenses\ab-download-manager-1.11.1\LICENSE.txt") -and (Test-Path "$Dir\THIRD_PARTY_NOTICES.md"))
+    Check "licenses and notices installed" ((Test-Path "$Dir\licenses\ab-download-manager\ab-download-manager-LICENSE.txt") -and (Test-Path "$Dir\THIRD_PARTY_NOTICES.md"))
     Check "Start menu shortcut created" (Test-Path $StartMenu)
     Check "desktop shortcut created" (Test-Path $Desktop)
     $reg = Get-ItemProperty $UninstallKey -ErrorAction SilentlyContinue
-    Check "one uninstall entry with version 4.0.0" ($reg -and $reg.DisplayVersion -eq "4.0.0") "$($reg.DisplayName) $($reg.DisplayVersion)"
+    Check "one uninstall entry with version $Version" ($reg -and $reg.DisplayVersion -eq $Version) "$($reg.DisplayName) $($reg.DisplayVersion)"
+    Check "docs bundled" ((Test-Path "$Dir\docs\USER_GUIDE.md") -and (Test-Path "$Dir\docs\LICENSING.md"))
+    Check "license inventory bundled" (Test-Path "$Dir\licenses\inventory.json")
+    Check "update public key bundled" (Test-Path "$Dir\_internal\update_public_key.pem")
+    Check "no Start with Windows shortcut unless chosen" (-not (Test-Path (Join-Path ([Environment]::GetFolderPath("Startup")) "$Name.lnk")))
     Check "publisher links registered" ($reg.URLInfoAbout -like "https://github.com/*") "$($reg.URLInfoAbout)"
 
     # ------------------------------------------------------------- run installed app
@@ -67,7 +79,7 @@ try {
         Start-Sleep -Milliseconds 500
         try { $ver = Invoke-RestMethod "http://127.0.0.1:47931/version" -TimeoutSec 2 } catch {}
     }
-    Check "installed app starts and its API answers" ($ver.version -eq "4.0.0") "$($ver.version)"
+    Check "installed app starts and its API answers" ($ver.version -eq $Version) "$($ver.version)"
     # a real download through the installed app (local server, no internet)
     $srvDir = Join-Path $Work "srv"
     New-Item -ItemType Directory -Force $srvDir | Out-Null
@@ -94,7 +106,7 @@ try {
     Check "history database created in the data folder" (Test-Path "$Data\download_history.sqlite3")
 
     # ----------------------------------------------- re-install: program only (upgrade path)
-    $code = Install "app" "startmenuicon" "$Work\install2.log"
+    $code = Install "app,startmenu" "$Work\install2.log"
     Check "re-install over the existing copy exits 0" ($code -eq 0) "exit $code"
     Check "unticked component's files are removed" (-not (Test-Path "$Dir\extensions"))
     Check "unticked desktop shortcut is removed" (-not (Test-Path $Desktop))
@@ -113,6 +125,10 @@ try {
     Check "downloaded files kept after uninstall" (Test-Path $status.result_path)
 }
 finally {
+    # never leave the test copy running (e.g. after a failed check)
+    Get-Process MasterDownloadManager -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($Dir, [StringComparison]::OrdinalIgnoreCase) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     foreach ($lnk in $StartMenu, $Desktop) { if (Test-Path $lnk) { Remove-Item $lnk -Force } }
     if (Test-Path "$Dir\unins000.exe") {
         Start-Process -FilePath "$Dir\unins000.exe" -ArgumentList "/VERYSILENT" -Wait -ErrorAction SilentlyContinue

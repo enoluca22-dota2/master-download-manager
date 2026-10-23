@@ -1,5 +1,74 @@
 # Changelog
 
+## 4.1.0 — 2026-10-24
+
+### Added
+- **One-click updates.** Help → Check for Updates shows the installed and
+  latest version, release date, size and what's new, with *Update Now*,
+  *Remind Me Later*, *View Release Notes* and *Cancel*. Update Now downloads
+  and verifies the update; *Install and Restart* pauses running downloads,
+  closes MDM, upgrades it in place and starts the new version, which then
+  reports the result; if the installation fails, the previous version starts
+  again and says so. Daily background check (can be turned off), stable and
+  beta channels, never downgrades, one update at a time.
+- **Signed releases.** Every release carries an Ed25519-signed
+  `update-manifest.json`. MDM installs an update only if the signature and
+  the installer's name, URL, size and SHA-256 all match. Settings, queues and
+  the history database are backed up before each update. A damaged settings
+  file is restored from that backup afterwards.
+- **Menu bar** — File, Tasks, Tools, Help, with keyboard shortcuts (Ctrl+N,
+  Ctrl+Shift+N, Ctrl+O, Ctrl+Shift+M, Ctrl+I, Ctrl+E, Ctrl+J, Ctrl+H, Ctrl+,,
+  Ctrl+P, Ctrl+R, Ctrl+Q, F1, Alt+F/T/O/H). Every entry works; entries that
+  don't apply right now are greyed out.
+- Add Multiple URLs, Import/Export Download List (JSON or plain text),
+  Download History window (search, filter, open, download again), Check File
+  Integrity (MD5/SHA-1/SHA-256/SHA-512), Import/Export Settings (without the
+  security token), log viewer.
+- **About** window (version, copyright, project, open-source and update
+  panels) and **Open Source Software Used in Master Download Manager**:
+  searchable, sortable list of all 61 bundled components with author,
+  license, version, source repository and full license texts.
+- Documentation inside the app (Help → Documentation): User Guide,
+  Installation, Browser Integration, Troubleshooting. Also new: Updating,
+  Uninstallation, Licensing, Update Security, Release Process.
+- Settings → Updates: automatic check, check on start, channel, Check Now,
+  current version, last check, status and the last update's result.
+- Version shown in the status bar.
+
+### Changed
+- **New Setup wizard**: Welcome, License Information, Choose Components
+  (with descriptions and sizes: program, Start Menu shortcut, Desktop
+  shortcut, Start with Windows, Browser Integration, .torrent and magnet:
+  associations), Installation Location (new installs only), Installing with
+  *Show details*, Completing with *Run Master Download Manager* and *Open
+  GitHub Project*. Upgrades keep the folder and your previous choices. The
+  wizard no longer asks "for me / for all users" (it installs per user, so
+  updates never need administrator rights; administrators can still use
+  `/ALLUSERS`).
+- Uninstall asks whether to remove settings/history (default: keep). It
+  removes only the files MDM created, and never downloaded files.
+- The license inventory is generated from the build and verified as a release
+  gate. It now also lists the native libraries bundled with Python (OpenSSL,
+  SQLite, Tcl/Tk, zlib, libffi, expat, bzip2, xz), the MSVC runtime, the
+  JavaScript bundled in yt-dlp-ejs (meriyah, astring) and every winrt
+  package. Corrected: pywin32 (BSD-3-Clause for the bundled parts), certifi
+  (full MPL-2.0 text).
+- Licensing is documented accurately: MDM's own code is all rights reserved
+  (not open source), third-party components keep their licenses, and the
+  build is not code-signed.
+- The update check refuses releases that aren't from the official repository
+  and plain-HTTP addresses.
+- Single version source (`ytd/__init__.py`) for the app, installer, extensions
+  and release assets.
+
+### Fixed
+- A background task (for example the update check) could hang forever when
+  Python's garbage collector happened to free a window's font in that thread.
+  Garbage collection now runs on the window thread only.
+- A second MDM instance under a test/portable profile no longer blocks the
+  main one (per-profile single-instance lock).
+
+
 ## 4.0.0 — 2026-10-23
 
 ### Added

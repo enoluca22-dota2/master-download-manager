@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Master Download Manager",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Send videos, playlists, file links, selected links, magnets and torrents to the Master Download Manager desktop app \u2014 and, if you turn it on in the app, hand browser downloads to it.",
   "icons": {
     "16": "icons/icon-16.png",

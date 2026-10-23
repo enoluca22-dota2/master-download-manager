@@ -1,7 +1,6 @@
 """Settings window. Every control here maps to a setting that an engine,
 the queue, or the app actually reads — nothing is decorative."""
 
-import json
 import os
 import platform
 import subprocess
@@ -435,18 +434,40 @@ class SettingsWindow:
         glass_button(b, "Open data folder", lambda: open_folder(DATA_DIR), width=150, height=30).grid(row=0, column=1, sticky="w", padx=8)
 
     def _build_updates(self, f):
-        b = self._card(f, "Updates", "Master Download Manager never updates itself silently. It checks the project's "
-                       "GitHub releases (or your own manifest), and every installer is verified (size + SHA-256 from "
-                       "the release's SHA256SUMS.txt) before you can run it. Your settings and downloads are kept.")
+        import datetime
+        b = self._card(f, "Updates", "Updates come from the project's GitHub releases. A new version is only ever "
+                       "installed after you click Update Now; it's downloaded, checked against the release's signed "
+                       "manifest (size + SHA-256) and installed over this one — settings, history, queues and "
+                       "unfinished downloads are kept.")
+        self._bool(b, "update_auto_check", "Automatically check for updates (at most once a day)", 0, True)
+        self._bool(b, "update_check_on_start", "Also check every time the app starts", 1)
+        self._choice(b, "update_channel", "Channel", ["stable", "beta"], 2, width=220,
+                     labels=["Stable releases", "Beta (pre-releases too)"])
+        last = float(self.s.get("update_last_check") or 0)
+        when = datetime.datetime.fromtimestamp(last).strftime("%d %b %Y, %H:%M") if last else "never"
+        status = self.s.get("update_last_status") or "—"
+        self.update_label = ctk.CTkLabel(b, text=f"Current version: {__version__}\nLast check: {when}\nStatus: {status}"
+                                         + self._last_update_text(), font=font(12), text_color=COLORS["muted"],
+                                         wraplength=560, justify="left")
+        self.update_label.grid(row=3, column=1, sticky="w", pady=(10, 0))
+        self.update_btn = glass_button(b, "Check Now", self._check_updates, variant="primary", width=130, height=30)
+        self.update_btn.grid(row=3, column=0, sticky="nw", pady=(10, 0))
+        b = self._card(f, "Advanced", "Only if you publish your own builds: a custom manifest URL (not signed, so "
+                       "never installed automatically — you run the verified installer yourself).")
         self._choice(b, "update_source", "Source", ["github", "manifest"], 0, width=220,
                      labels=["GitHub releases", "Custom manifest URL"])
-        self._text(b, "update_manifest_url", "Manifest URL", 2, width=420, placeholder="(only for a custom manifest)")
-        self._bool(b, "update_check_on_start", "Check once a week when the app starts", 3)
-        self.update_label = ctk.CTkLabel(b, text=f"Installed version: {__version__}", font=font(12),
-                                         text_color=COLORS["muted"], wraplength=560, justify="left")
-        self.update_label.grid(row=4, column=1, sticky="w", pady=(8, 0))
-        self.update_btn = glass_button(b, "Check for updates", self._check_updates, width=150, height=30)
-        self.update_btn.grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self._text(b, "update_manifest_url", "Manifest URL", 1, width=420, placeholder="(only for a custom manifest)")
+
+    def _last_update_text(self):
+        import json
+        from ..update_install import RESULT_FILE
+        try:
+            with open(RESULT_FILE, encoding="utf-8") as fh:
+                r = json.load(fh)
+            return f"\nLast update: {r.get('from')} → {r.get('to')} ({'succeeded' if r.get('ok') else 'did not complete'}, " \
+                   f"{r.get('finished', '')[:16].replace('T', ' ')})"
+        except (OSError, ValueError):
+            return ""
 
     def _build_about(self, f):
         b = self._card(f, APP_NAME)
@@ -492,14 +513,16 @@ class SettingsWindow:
             tree.heading(col, text=head)
             tree.column(col, width=w, anchor="w")
         tree.pack(side="left", fill="x", expand=True)
+        from .licenses_window import load_inventory
         try:
-            with open(os.path.join(LICENSES_DIR, "inventory.json"), encoding="utf-8") as fh:
-                for item in json.load(fh):
-                    tree.insert("", "end", values=(item.get("name"), item.get("version"), item.get("license")))
+            for item in sorted(load_inventory(), key=lambda c: str(c.get("name", "")).lower()):
+                tree.insert("", "end", values=(item.get("name"), item.get("version"), item.get("license")))
         except (OSError, ValueError):
             tree.insert("", "end", values=("(license inventory not found)", "", ""))
-        glass_button(b, "Open licenses folder", lambda: open_folder(LICENSES_DIR), width=170, height=30).grid(row=1, column=0, sticky="w", pady=(10, 0))
-        glass_button(b, "Third-party notices", lambda: open_file(NOTICES_FILE, self.win), width=170, height=30).grid(row=1, column=1, sticky="w", pady=(10, 0))
+        glass_button(b, "View licenses…", self.app.open_licenses, variant="primary", width=150,
+                     height=30).grid(row=1, column=0, sticky="w", pady=(10, 0))
+        glass_button(b, "Open licenses folder", lambda: open_folder(LICENSES_DIR), width=170, height=30).grid(row=1, column=1, sticky="w", pady=(10, 0))
+        glass_button(b, "Third-party notices", lambda: open_file(NOTICES_FILE, self.win), width=170, height=30).grid(row=1, column=2, sticky="w", pady=(10, 0))
 
     # -------------------------------------------------------------- actions -- #
     def _toggle_token(self):
@@ -535,6 +558,10 @@ class SettingsWindow:
     def _check_updates(self):
         from .. import updater
         source = self._value("update_source")
+        if source == "github":
+            self.s.set("update_channel", self._value("update_channel"))
+            self.app.check_for_updates()
+            return
         url = self.vars["update_manifest_url"].get().strip()
         self.update_btn.configure(state="disabled")
         self.update_label.configure(text="Checking…", text_color=COLORS["muted"])
@@ -621,12 +648,13 @@ class SettingsWindow:
         for key in ("minimize_to_tray", "notifications_enabled", "clipboard_monitor_enabled",
                     "restore_queue_on_start", "prefer_h264", "embed_metadata", "embed_chapters", "embed_thumbnail",
                     "subtitle_include_auto", "subtitle_embed", "api_enabled", "mica_backdrop",
-                    "browser_capture_enabled", "update_check_on_start", "http_adaptive_connections"):
+                    "browser_capture_enabled", "update_check_on_start", "http_adaptive_connections",
+                    "update_auto_check"):
             updates[key] = bool(self._value(key))
         for key in ("default_mode", "default_quality", "default_container", "default_audio_format",
                     "default_audio_quality", "subtitle_format", "cookies_mode", "cookies_browser",
                     "max_concurrent_downloads", "max_retries", "http_connections", "concurrent_fragments",
-                    "update_source"):
+                    "update_source", "update_channel"):
             updates[key] = self._value(key)
         for key in ("download_dir", "video_dir", "audio_dir", "torrent_dir"):
             value = self._value(key).strip()
