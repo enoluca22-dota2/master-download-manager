@@ -11,10 +11,17 @@ installers, documents, direct media file links).
   * large range-capable files are fetched over several connections into
     disjoint regions of one pre-sized part file; per-segment progress is
     kept in "<name>.mdm-part.json" so pause/restart resumes every segment
-  * speed limit (shared token bucket), retries with backoff, proxy, timeout,
-    disk-space check, pause and cancel
+  * dynamic splitting (the technique AB Download Manager calls part
+    splitting): when a connection runs out of work it takes over the second
+    half of the segment with the most bytes left, so the last few percent
+    aren't left to one slow connection. A "safe zone" ahead of the busy
+    writer guarantees the two never overlap.
+  * global + per-download speed limits (ytd.bandwidth), retries with backoff
+    that reset whenever data was received, proxy, timeout, disk-space check,
+    optional checksum verification, pause and cancel
 """
 
+import hashlib
 import json
 import os
 import re
@@ -25,6 +32,7 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
+from .. import bandwidth
 from ..config import DEFAULT_SETTINGS, MIN_FREE_SPACE_BYTES
 from ..errors import PauseRequested, UnsupportedMediaError
 from ..files import sanitize_filename, unique_path
@@ -43,9 +51,70 @@ PART_SUFFIX = ".mdm-part"
 STATE_SUFFIX = ".mdm-part.json"
 SEGMENT_MIN_FILE = 8 * 1024 * 1024  # below this a single connection is just as fast
 SEGMENT_MIN_SIZE = 2 * 1024 * 1024
+# Bytes just ahead of a busy connection that a split may never hand to
+# another one. Must exceed CHUNK: a write already in flight can't cross it.
+SAFE_ZONE = 1024 * 1024
+STATE_SAVE_INTERVAL = 2.0
 MAX_CONNECTIONS = 16
 STREAM_RETRIES = 5
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
+CHECKSUM_ALGORITHMS = ("sha256", "sha1", "md5", "sha512")
+
+
+class ChecksumMismatch(Exception):
+    """The finished file doesn't match the hash the user supplied."""
+
+
+def parse_checksum(value):
+    """'sha256:abc…' / 'md5=abc…' / a bare hex digest (algorithm guessed from
+    its length). Returns (algorithm, lowercase hex) or None when empty.
+    Raises ValueError for anything that isn't a well-formed digest."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    algo = None
+    m = re.match(r"^([A-Za-z0-9-]+)\s*[:=]\s*(.+)$", text)
+    if m:
+        algo, text = m.group(1).lower().replace("-", ""), m.group(2).strip()
+    text = text.lower()
+    if not re.fullmatch(r"[0-9a-f]+", text):
+        raise ValueError("A checksum must be hexadecimal.")
+    by_length = {32: "md5", 40: "sha1", 64: "sha256", 128: "sha512"}
+    if algo is None:
+        algo = by_length.get(len(text))
+        if algo is None:
+            raise ValueError("Unrecognised checksum length.")
+    if algo not in CHECKSUM_ALGORITHMS:
+        raise ValueError(f"Unsupported checksum algorithm: {algo}")
+    if by_length.get(len(text)) != algo:
+        raise ValueError(f"That doesn't look like a {algo.upper()} digest.")
+    return algo, text
+
+
+def file_digest(path, algorithm, stop_event=None):
+    h = hashlib.new(algorithm)
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            if stop_event is not None and stop_event.is_set():
+                return None
+            h.update(block)
+    return h.hexdigest()
+
+
+def split_to_range(size, min_part_size, max_parts):
+    """Even split of [0, size) into at most max_parts inclusive ranges of at
+    least min_part_size bytes (the last parts take the remainder)."""
+    size, min_part_size, max_parts = int(size), max(1, int(min_part_size)), max(1, int(max_parts))
+    if size <= 0:
+        return []
+    count = min(max_parts, -(-size // min_part_size))
+    base, extra = divmod(size, count)
+    ranges, start = [], 0
+    for i in range(count):
+        length = base + (1 if i < extra else 0)
+        ranges.append((start, start + length - 1))
+        start += length
+    return ranges
 
 
 class _Settings:
@@ -151,37 +220,15 @@ def probe_url(url, settings_store=None, headers=None):
         session.close()
 
 
-class TokenBucket:
-    """Thread-safe byte-rate limiter shared by all connections of one job."""
-
-    def __init__(self, rate_bps):
-        self.rate = float(rate_bps)
-        self._allowance = self.rate
-        self._last = time.monotonic()
-        self._lock = threading.Lock()
-
-    def consume(self, n, stop_event=None):
-        """Take n bytes of allowance; sleeps off any resulting debt. Debt
-        carries over, so concurrent callers queue up behind each other and
-        the long-run average never exceeds the configured rate."""
-        if self.rate <= 0:
-            return
-        with self._lock:
-            now = time.monotonic()
-            self._allowance = min(self.rate, self._allowance + (now - self._last) * self.rate)
-            self._last = now
-            self._allowance -= n
-            deficit = -self._allowance
-        if deficit > 0:
-            wait = deficit / self.rate
-            if stop_event is not None:
-                stop_event.wait(wait)
-            else:
-                time.sleep(wait)
+# Kept under its old name: one job's limiter is a plain token bucket.
+TokenBucket = bandwidth.RateLimiter
 
 
 class _Stop(Exception):
     pass
+
+
+_RETRYABLE = (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)
 
 
 class HttpEngine(MediaProvider):
@@ -223,6 +270,7 @@ class HttpEngine(MediaProvider):
         cfg = _Settings(self.settings)
         options = job.options or {}
         headers = options.get("headers") or {}
+        expected = parse_checksum(options.get("checksum")) if options.get("checksum") else None
         info = probe_url(job.url, self.settings, headers)
         size = info["size"]
         job.resumable = bool(info["accept_ranges"] and size)
@@ -244,8 +292,7 @@ class HttpEngine(MediaProvider):
             job.title = os.path.basename(target)
 
         state = self._load_state(state_path)
-        if state and (state.get("url") != job.url or state.get("size") != size
-                      or (info["etag"] and state.get("etag") and state["etag"] != info["etag"])):
+        if state and self._server_file_changed(state, job, info, size):
             log.info("Job %s: server file changed since last attempt; restarting from zero", job.job_id)
             state = None
             self._remove(part)
@@ -255,21 +302,41 @@ class HttpEngine(MediaProvider):
         already = self._bytes_done(state, part)
         self._check_disk(job.download_dir, size, already)
 
-        rate = int(options.get("speed_limit_kbps") or cfg.get("speed_limit_kbps") or 0) * 1024
-        bucket = TokenBucket(rate)
-        connections = max(1, min(MAX_CONNECTIONS, int(cfg.get("http_connections") or 1)))
+        job_rate = int(options.get("speed_limit_kbps") or cfg.get("speed_limit_kbps") or 0) * 1024
+        job.rate_limiter = TokenBucket(job_rate)  # kept on the job so its limit can change mid-download
+        limiters = [bandwidth.manager.global_limiter, job.rate_limiter]
+        wanted = (options.get("connections") or getattr(job, "queue_connections", None)
+                  or cfg.get("http_connections") or 1)
+        connections = max(1, min(MAX_CONNECTIONS, int(wanted)))
         use_segments = job.resumable and size and size >= SEGMENT_MIN_FILE and connections > 1
 
-        if use_segments:
-            self._download_segmented(job, info, part, state_path, state, size, connections, bucket, progress_hook,
-                                     headers)
-        else:
-            self._download_single(job, info, part, state_path, size, bucket, progress_hook, headers)
+        try:
+            if use_segments:
+                self._download_segmented(job, info, part, state_path, state, size, connections, limiters,
+                                         progress_hook, headers)
+            else:
+                job.connections = 1
+                self._download_single(job, info, part, state_path, size, limiters, progress_hook, headers)
+        finally:
+            job.connections = 0
 
         final_size = os.path.getsize(part)
         if size is not None and final_size != size:
             raise OSError(f"Downloaded size {final_size} doesn't match the expected {size} bytes; "
                           "the file was kept as a partial download and will resume on retry.")
+        if expected:
+            algo, digest = expected
+            progress_hook({"status": "processing", "postprocessor": "VerifyChecksum", "filename": part})
+            actual = file_digest(part, algo, job.cancel_event)
+            self._check_control(job)
+            if actual != digest:
+                # The bytes are wrong; resuming them would only reproduce the
+                # same file, so the partial data is discarded.
+                self._remove(part)
+                self._remove(state_path)
+                raise ChecksumMismatch(f"{algo.upper()} checksum mismatch: expected {digest}, got {actual}. "
+                                       "The corrupt file was discarded.")
+            log.info("Job %s: %s checksum verified", job.job_id, algo.upper())
         progress_hook({"status": "finished", "filename": target})
         if os.path.exists(target):  # something appeared at the destination meanwhile
             target = unique_path(os.path.dirname(target), os.path.basename(target))
@@ -278,8 +345,17 @@ class HttpEngine(MediaProvider):
         job.temp_files.difference_update({part, state_path})
         return {"title": os.path.basename(target), "filepaths": [target]}
 
+    @staticmethod
+    def _server_file_changed(state, job, info, size):
+        if state.get("url") != job.url or state.get("size") != size:
+            return True
+        if info.get("etag") and state.get("etag") and state["etag"] != info["etag"]:
+            return True
+        return bool(info.get("last_modified") and state.get("last_modified")
+                    and state["last_modified"] != info["last_modified"])
+
     # -- single connection -- #
-    def _download_single(self, job, info, part, state_path, size, bucket, progress_hook, headers):
+    def _download_single(self, job, info, part, state_path, size, limiters, progress_hook, headers):
         attempt = 0
         while True:
             done = os.path.getsize(part) if os.path.exists(part) else 0
@@ -292,29 +368,31 @@ class HttpEngine(MediaProvider):
                 validator = info.get("etag") or info.get("last_modified")
                 if validator:
                     req_headers["If-Range"] = validator
+            received = 0
             try:
                 with session.get(job.url, headers=req_headers, stream=True, timeout=timeout) as resp:
                     resp.raise_for_status()
                     if done and resp.status_code != 206:
                         done = 0  # server ignored the range (or the file changed): start over
                     self._save_state(state_path, job, info, size, None)
-                    mode = "ab" if done else "wb"
                     started = time.monotonic()
-                    with open(part, mode) as f:
+                    # Unbuffered: every chunk reaches the OS before progress is reported.
+                    with open(part, "ab" if done else "wb", buffering=0) as f:
                         for chunk in resp.iter_content(CHUNK):
                             if not chunk:
                                 continue
                             self._check_control(job)
-                            bucket.consume(len(chunk), job.cancel_event)
+                            bandwidth.consume_all(limiters, len(chunk), job.cancel_event)
                             f.write(chunk)
                             done += len(chunk)
+                            received += len(chunk)
                             progress_hook({"status": "downloading", "downloaded_bytes": done, "total_bytes": size,
                                            "filename": part, "elapsed": time.monotonic() - started})
                 if size is None or done >= size:
                     return
                 raise requests.ConnectionError("Connection closed before the whole file was received")
-            except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
-                attempt += 1
+            except _RETRYABLE as e:
+                attempt = 1 if received else attempt + 1  # progress was made: old failures don't count
                 if attempt > STREAM_RETRIES or not job.resumable:
                     raise
                 delay = min(2 ** attempt, 20)
@@ -327,13 +405,12 @@ class HttpEngine(MediaProvider):
                 session.close()
 
     # -- segmented -- #
-    def _download_segmented(self, job, info, part, state_path, state, size, connections, bucket, progress_hook,
+    def _download_segmented(self, job, info, part, state_path, state, size, connections, limiters, progress_hook,
                             headers):
         if state and state.get("segments"):
             segments = [list(s) for s in state["segments"]]
         else:
-            seg_size = max(SEGMENT_MIN_SIZE, size // (connections * 4))
-            segments = [[start, min(start + seg_size, size) - 1, 0] for start in range(0, size, seg_size)]
+            segments = [[a, b, 0] for a, b in split_to_range(size, SEGMENT_MIN_SIZE, connections)]
             with open(part, "wb") as f:
                 f.truncate(size)  # pre-size once; segments write into disjoint regions
         if not os.path.exists(part):
@@ -346,71 +423,134 @@ class HttpEngine(MediaProvider):
         stop = threading.Event()
         errors = []
         pending = [i for i, s in enumerate(segments) if s[0] + s[2] <= s[1]]
+        active = set()
         validator = info.get("etag") or info.get("last_modified")
+        stats = {"splits": 0}
 
-        def save_state():
+        def take_work():
+            """Next segment index for an idle connection: an untouched one
+            first, otherwise split the busiest live segment. None = no work."""
+            with lock:
+                if pending:
+                    idx = pending.pop(0)
+                    active.add(idx)
+                    return idx
+                best, best_avail = None, 0
+                for i in active:
+                    s = segments[i]
+                    # First byte another connection may take: beyond the safe zone.
+                    avail = s[1] - (s[0] + s[2] + SAFE_ZONE) + 1
+                    if avail >= 2 * SEGMENT_MIN_SIZE and avail > best_avail:
+                        best, best_avail = i, avail
+                if best is None:
+                    return None
+                s = segments[best]
+                new_start = s[1] - best_avail // 2 + 1
+                segments.append([new_start, s[1], 0])
+                s[1] = new_start - 1  # the busy writer notices its new end on its next chunk
+                idx = len(segments) - 1
+                active.add(idx)
+                stats["splits"] += 1
+                return idx
+
+        def save_state(fd):
             with lock:
                 snapshot = [list(s) for s in segments]
+            if fd is not None:
+                try:
+                    os.fsync(fd)  # the data the snapshot vouches for is on disk before the snapshot is
+                except OSError:
+                    pass
             self._save_state(state_path, job, info, size, snapshot)
+
+        def fetch(f, session, timeout, seg):
+            """Fetch one segment until done (or until it was shrunk to what
+            we have). Returns normally when the segment is complete."""
+            attempt = 0
+            while not stop.is_set():
+                with lock:
+                    start, end = seg[0] + seg[2], seg[1]
+                if start > end:
+                    return
+                req_headers = {"Range": f"bytes={start}-{end}"}
+                if validator:
+                    req_headers["If-Range"] = validator
+                received = 0
+                try:
+                    with session.get(job.url, headers=req_headers, stream=True, timeout=timeout) as resp:
+                        resp.raise_for_status()
+                        if resp.status_code != 206:
+                            raise _Stop("The server stopped honouring byte ranges.")
+                        f.seek(start)
+                        for chunk in resp.iter_content(CHUNK):
+                            if stop.is_set():
+                                return
+                            if not chunk:
+                                continue
+                            with lock:
+                                room = seg[1] - (seg[0] + seg[2]) + 1
+                            if room <= 0:
+                                return  # a split took the rest of this range
+                            chunk = chunk[:room]
+                            bandwidth.consume_all(limiters, len(chunk), stop)
+                            f.write(chunk)
+                            received += len(chunk)
+                            with lock:
+                                seg[2] += len(chunk)
+                                if seg[0] + seg[2] > seg[1]:
+                                    return
+                    with lock:
+                        if seg[0] + seg[2] > seg[1]:
+                            return
+                    raise requests.ConnectionError("Connection closed before the range was received")
+                except _RETRYABLE as e:
+                    attempt = 1 if received else attempt + 1
+                    if attempt > STREAM_RETRIES:
+                        raise
+                    log.debug("Job %s: segment retry %s after %s", job.job_id, attempt, e.__class__.__name__)
+                    if stop.wait(min(2 ** attempt, 20)):
+                        return
 
         def worker():
             session, timeout = _session(self.settings, headers)
+            idx = None
             try:
-                with open(part, "r+b") as f:
+                with open(part, "r+b", buffering=0) as f:
                     while not stop.is_set():
+                        idx = take_work()
+                        if idx is None:
+                            return
+                        fetch(f, session, timeout, segments[idx])
                         with lock:
-                            if not pending:
-                                return
-                            idx = pending.pop(0)
-                        seg = segments[idx]
-                        attempt = 0
-                        while seg[0] + seg[2] <= seg[1] and not stop.is_set():
-                            start = seg[0] + seg[2]
-                            req_headers = {"Range": f"bytes={start}-{seg[1]}"}
-                            if validator:
-                                req_headers["If-Range"] = validator
-                            try:
-                                with session.get(job.url, headers=req_headers, stream=True, timeout=timeout) as resp:
-                                    resp.raise_for_status()
-                                    if resp.status_code != 206:
-                                        raise _Stop("The server stopped honouring byte ranges.")
-                                    f.seek(start)
-                                    for chunk in resp.iter_content(CHUNK):
-                                        if stop.is_set():
-                                            return
-                                        if not chunk:
-                                            continue
-                                        remaining = seg[1] - (seg[0] + seg[2]) + 1
-                                        chunk = chunk[:remaining]
-                                        bucket.consume(len(chunk), stop)
-                                        f.write(chunk)
-                                        with lock:
-                                            seg[2] += len(chunk)
-                                        if seg[0] + seg[2] > seg[1]:
-                                            break
-                            except (requests.ConnectionError, requests.Timeout,
-                                    requests.exceptions.ChunkedEncodingError) as e:
-                                attempt += 1
-                                if attempt > STREAM_RETRIES:
-                                    errors.append(e)
-                                    stop.set()
-                                    return
-                                if stop.wait(min(2 ** attempt, 20)):
-                                    return
+                            active.discard(idx)
+                        idx = None
             except _Stop as e:
                 errors.append(e)
-                stop.set()
-            except Exception as e:  # noqa: BLE001 - surfaced to the queue below
+                stop.set()  # every connection would hit the same wall
+            except Exception as e:  # noqa: BLE001 - this connection gives up; the others carry on
                 errors.append(e)
-                stop.set()
+                if idx is not None:
+                    with lock:
+                        active.discard(idx)
+                        if segments[idx][0] + segments[idx][2] <= segments[idx][1]:
+                            pending.append(idx)  # another connection (or the next attempt) takes it over
+                log.info("Job %s: a connection gave up (%s)", job.job_id, e.__class__.__name__)
             finally:
                 session.close()
 
-        threads = [threading.Thread(target=worker, daemon=True) for _ in range(min(connections, max(1, len(pending))))]
+        # One thread per connection even when fewer segments are pending:
+        # idle connections split the busy segments (see take_work).
+        threads = [threading.Thread(target=worker, daemon=True, name=f"mdm-http-{job.job_id}-{i}")
+                   for i in range(connections)]
         started = time.monotonic()
         for t in threads:
             t.start()
         last_save = time.monotonic()
+        mon_fd = None
+        try:
+            mon_fd = os.open(part, os.O_RDWR | getattr(os, "O_BINARY", 0))
+        except OSError:
+            pass
         try:
             while any(t.is_alive() for t in threads):
                 time.sleep(0.25)
@@ -419,23 +559,26 @@ class HttpEngine(MediaProvider):
                     break
                 with lock:
                     done = sum(s[2] for s in segments)
+                    job.connections = len(active)
+                    job.segment_map = [(s[0], s[1], s[2]) for s in sorted(segments)]
                 progress_hook({"status": "downloading", "downloaded_bytes": done, "total_bytes": size,
                                "filename": part, "elapsed": time.monotonic() - started})
-                if time.monotonic() - last_save > 2:
-                    save_state()
+                if time.monotonic() - last_save > STATE_SAVE_INTERVAL:
+                    save_state(mon_fd)
                     last_save = time.monotonic()
         finally:
             stop.set()
             for t in threads:
                 t.join(timeout=15)
-            save_state()
+            save_state(mon_fd)
+            if mon_fd is not None:
+                os.close(mon_fd)
+        if stats["splits"]:
+            log.info("Job %s: %s dynamic split(s) over %s connection(s)", job.job_id, stats["splits"], connections)
         self._check_control(job)
-        if errors:
-            raise errors[0]
-        with open(part, "r+b") as f:
-            f.flush()
-            os.fsync(f.fileno())
         if any(s[0] + s[2] <= s[1] for s in segments):
+            if errors:
+                raise errors[-1]
             raise requests.ConnectionError("Some parts of the file are still missing")
 
     # -- helpers -- #

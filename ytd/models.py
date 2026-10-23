@@ -122,8 +122,13 @@ _PERSISTED_FIELDS = (
     "priority", "source", "show_popup", "filename_override", "category", "engine", "options", "status",
     "title", "progress", "downloaded_bytes", "total_bytes", "resumable", "retries", "result_path",
     "result_paths", "error_message", "error_hint", "error_details", "created_at", "started_at", "finished_at",
-    "playlist_title", "playlist_index",
+    "playlist_title", "playlist_index", "queue_id", "start_at", "queued_at",
 )
+
+PRIORITY_HIGH = 1
+PRIORITY_NORMAL = 0
+PRIORITY_LOW = -1
+PRIORITY_LABELS = {PRIORITY_HIGH: "High", PRIORITY_NORMAL: "Normal", PRIORITY_LOW: "Low"}
 
 
 class DownloadJob:
@@ -136,7 +141,7 @@ class DownloadJob:
     def __init__(self, url, kind, quality_label, format_key, is_playlist,
                  download_dir, audio_bitrate="192", priority=0, source="gui",
                  show_popup=False, title=None, filename_override=None, category=None,
-                 engine=None, options=None):
+                 engine=None, options=None, queue_id=None):
         self.job_id = next_job_id()
         self.url = url
         self.kind = kind  # "video" | "audio" | "image" | "subtitle" | "torrent" | "file"
@@ -145,7 +150,10 @@ class DownloadJob:
         self.is_playlist = is_playlist
         self.download_dir = download_dir
         self.audio_bitrate = audio_bitrate
-        self.priority = priority
+        self.priority = priority  # PRIORITY_HIGH / _NORMAL / _LOW
+        self.queue_id = queue_id or "main"
+        self.start_at = None  # epoch seconds: don't start before this (scheduled download)
+        self.queued_at = time.time()  # when it last became Pending (priority aging)
         self.source = source  # "gui" | "extension"
         self.show_popup = show_popup
         self.filename_override = filename_override  # sanitized base name, no extension
@@ -181,6 +189,9 @@ class DownloadJob:
         self.upload_bps = 0.0
         self.playlist_title = None
         self.playlist_index = None
+        self.connections = 0  # runtime: HTTP connections currently open
+        self.segment_map = None  # runtime: [(start, end_inclusive, done)] of a segmented HTTP download
+        self.queue_connections = None  # runtime: per-queue connection limit applied at start
 
         self.created_at = time.time()
         self.started_at = None
@@ -229,6 +240,9 @@ class DownloadJob:
             "upload_bps": self.upload_bps,
             "playlist_title": self.playlist_title,
             "playlist_index": self.playlist_index,
+            "queue_id": self.queue_id,
+            "start_at": self.start_at,
+            "connections": self.connections,
             "speed_history": list(self.speed_history[-40:]),
             "created_at": self.created_at,
             "started_at": self.started_at,

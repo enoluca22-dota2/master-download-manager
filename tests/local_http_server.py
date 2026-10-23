@@ -6,6 +6,9 @@ Routes (all GET/HEAD):
     /redirect/<name>        302 -> /files/<name>
     /norange/<name>         ignores Range, no Accept-Ranges
     /slow/<name>            Range-capable, but trickles data (for pause/cancel tests)
+    /uneven/<name>          Range-capable; requests starting in the 3rd quarter of the
+                            file trickle, all others are fast (dynamic splitting tests)
+    /lastmod/<name>         Range-capable, Last-Modified validator only (no ETag)
     /page                   an HTML page
     /torrentfile            served with Content-Type application/x-bittorrent
     /missing                404
@@ -59,6 +62,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
         etag = '"' + hashlib.md5(data).hexdigest() + '"'
         headers = {"Content-Type": "application/octet-stream", "ETag": etag}
+        if route == "lastmod":
+            etag = self.server.last_modified.get(name, "Wed, 21 Oct 2026 07:28:00 GMT")
+            headers = {"Content-Type": "application/octet-stream", "Last-Modified": etag}
         if route == "cd":
             headers["Content-Disposition"] = "attachment; filename=\"fallback.bin\"; filename*=UTF-8''r%C3%A9sum%C3%A9%20file.zip"
         if route == "norange":
@@ -74,7 +80,8 @@ class _Handler(BaseHTTPRequestHandler):
             if start >= len(data):
                 return self._send(416, b"", {"Content-Range": f"bytes */{len(data)}"}, head)
             headers["Content-Range"] = f"bytes {start}-{end}/{len(data)}"
-            return self._send(206, data[start:end + 1], headers, head, slow=(route == "slow"))
+            slow = route == "slow" or (route == "uneven" and len(data) // 2 <= start < len(data) * 3 // 4)
+            return self._send(206, data[start:end + 1], headers, head, slow=slow)
         return self._send(200, data, headers, head, slow=(route == "slow"))
 
     def _send(self, code, body, headers, head, slow=False):
@@ -105,6 +112,7 @@ class LocalHTTPServer:
         self.httpd.files = {}
         self.httpd.range_log = []
         self.httpd.slow_delay = 0.02
+        self.httpd.last_modified = {}
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
     def __enter__(self):

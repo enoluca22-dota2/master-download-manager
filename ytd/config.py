@@ -44,6 +44,9 @@ CACHE_DIR = os.path.join(DATA_DIR, "cache")
 HISTORY_FILE = os.path.join(DATA_DIR, "download_history.json")
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 QUEUE_FILE = os.path.join(DATA_DIR, "queue.json")
+QUEUES_FILE = os.path.join(DATA_DIR, "queues.json")  # named queues + their schedules
+SCHEDULER_FILE = os.path.join(DATA_DIR, "scheduler.json")  # speed profiles + recurring downloads
+HISTORY_DB = os.path.join(DATA_DIR, "history.sqlite3")
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 APP_ICON_FILE = os.path.join(RESOURCE_DIR, "mdm.ico")
@@ -63,7 +66,11 @@ MIN_FREE_SPACE_BYTES = 100 * 1024 * 1024  # refuse to start below ~100 MB free
 
 DEFAULT_SETTINGS = {
     # General
-    "appearance_mode": "Dark",
+    "appearance_mode": "Dark",  # Dark | Light | Black (AMOLED) | System
+    "accent_color": "Indigo",  # Indigo | Blue | Teal | Rose | Monochrome (the 3.0 look)
+    "mica_backdrop": False,
+    "visible_columns": [],  # empty = the default column set
+    "sidebar_collapsed": [],
     "reduce_motion": False,
     "minimize_to_tray": True,
     "start_with_windows": False,
@@ -96,6 +103,9 @@ DEFAULT_SETTINGS = {
     "subtitle_embed": False,
     # Network
     "speed_limit_kbps": 0,  # 0 = unlimited (applies per download)
+    "global_speed_limit_kbps": 0,  # 0 = unlimited (shared by all downloads)
+    "limited_mode": False,  # tray toggle: cap everything at limited_mode_kbps
+    "limited_mode_kbps": 512,
     "download_timeout": 30,
     "proxy": "",
     "concurrent_fragments": 8,
@@ -111,6 +121,10 @@ DEFAULT_SETTINGS = {
     "cookies_browser": "firefox",
     "cookies_file": "",
     # Browser integration / local API
+    "browser_capture_enabled": False,  # extension may hand normal browser downloads to MDM (opt-in)
+    "browser_capture_types": "zip rar 7z iso tar gz exe msi apk bin mp3 aac flac pdf mp4 mkv avi mov webm",
+    "browser_capture_min_kb": 0,
+    "browser_capture_blacklist": "",
     "api_port": DEFAULT_API_PORT,
     "api_token": "",
     "api_enabled": True,
@@ -118,6 +132,9 @@ DEFAULT_SETTINGS = {
     "ffmpeg_path": "",
     # Updates
     "update_manifest_url": "",
+    "update_source": "github",  # github | manifest
+    "update_check_on_start": False,
+    "update_last_check": 0,
 }
 
 

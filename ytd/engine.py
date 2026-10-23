@@ -19,6 +19,7 @@ import time
 
 from yt_dlp.utils import DownloadCancelled
 
+from . import bandwidth
 from .config import MIN_FREE_SPACE_BYTES
 from .errors import explain_error, is_transient_error
 from .files import sanitize_filename, sanitize_filename_override, unique_path  # noqa: F401 (re-exported)
@@ -27,14 +28,18 @@ from .logging_setup import get_logger
 from .models import (
     ACTIVE_STATUSES, RUNNING_STATUSES, STATUS_CANCELLED, STATUS_COMPLETED, STATUS_DOWNLOADING, STATUS_FAILED,
     STATUS_PAUSED, STATUS_PREPARING, STATUS_PROCESSING, STATUS_QUEUED, STATUS_RETRYING, STATUS_SEEDING,
-    DownloadJob, bump_job_id_counter,
+    PRIORITY_HIGH, PRIORITY_LOW, DownloadJob, bump_job_id_counter,
 )
 from .providers import UnsupportedMediaError, configure as configure_providers, find_provider, get_provider
 from .providers.base import PauseRequested
+from .queues import MAIN_QUEUE_ID, QueueStore
 
 log = get_logger("engine")
 
 PROGRESS_EMIT_INTERVAL = 0.25  # seconds between progress events per job (status changes are immediate)
+# A waiting download gains one priority level per AGING_SECONDS, so a steady
+# stream of High-priority downloads can delay a Low one but never starve it.
+AGING_SECONDS = 600
 
 
 def _guess_kind_from_format(format_label):
@@ -78,10 +83,12 @@ def resolve_download_dir(settings_store, kind, category=None, explicit_dir=None)
 
 
 class DownloadManager:
-    def __init__(self, settings_store, history_store=None, queue_file=None):
+    def __init__(self, settings_store, history_store=None, queue_file=None, queue_store=None):
         self._settings = settings_store
         self._history = history_store or HistoryStore()
         self._queue_file = queue_file
+        self.queues = queue_store or QueueStore(None)
+        self._queue_had_work = set()  # queue ids that processed something since they last went idle
         self._jobs = []
         self._lock = threading.RLock()
         self._active_count = 0
@@ -91,6 +98,7 @@ class DownloadManager:
         self._subscribers = []
         self._persist_lock = threading.Lock()
         configure_providers(settings_store)
+        bandwidth.manager.configure(settings_store)
 
     # ---------------- lifecycle ---------------- #
     def start(self):
@@ -126,9 +134,14 @@ class DownloadManager:
             self._persist()
 
     # ---------------- job CRUD ---------------- #
+    def wake(self):
+        """Re-evaluate what can start now (schedule changes, queue starts...)."""
+        self._wake.set()
+
     def add_job(self, url, kind, quality_label, format_key, is_playlist=False,
                 download_dir=None, audio_bitrate="192", source="gui", show_popup=False,
-                filename_override=None, category=None, engine=None, options=None, title=None):
+                filename_override=None, category=None, engine=None, options=None, title=None,
+                queue_id=None, priority=0, start_at=None, start_paused=False):
         provider = None
         if engine:
             candidate = get_provider(engine)
@@ -151,7 +164,12 @@ class DownloadManager:
             is_playlist=is_playlist, download_dir=download_dir, audio_bitrate=audio_bitrate,
             source=source, show_popup=show_popup, filename_override=safe_filename, category=category,
             engine=getattr(provider, "name", None), options=options, title=title,
+            queue_id=self.queues.resolve(queue_id).id, priority=_clamp_priority(priority),
         )
+        job.start_at = float(start_at) if start_at else None
+        if start_paused:
+            job.status = STATUS_PAUSED
+            job.message = "Added — press Resume (or start its queue) to download."
         job.provider = provider
         if options:
             job.playlist_title = options.get("playlist_title")
@@ -260,6 +278,7 @@ class DownloadManager:
         if job.status != STATUS_PAUSED:
             raise ValueError(f"Cannot resume a download that is {job.status.lower()}.")
         job.status = STATUS_QUEUED
+        job.queued_at = time.time()
         job.message = "Waiting to resume..."
         self._emit("resumed", job)
         self._wake.set()
@@ -290,6 +309,7 @@ class DownloadManager:
         if job.status not in (STATUS_FAILED, STATUS_CANCELLED):
             raise ValueError(f"Cannot retry a download that is {job.status.lower()}.")
         job.status = STATUS_QUEUED
+        job.queued_at = time.time()
         job.error_message = job.error_hint = job.error_details = None
         job.message = "Waiting to retry..."
         job.cancel_event.clear()
@@ -380,16 +400,181 @@ class DownloadManager:
         while True:
             with self._lock:
                 if self._active_count >= max_concurrent:
-                    return
-                candidate = next((j for j in self._jobs if j.status == STATUS_QUEUED), None)
+                    break
+                candidate = self._next_candidate()
                 if candidate is None:
-                    return
+                    break
+                queue = self.queues.resolve(candidate.queue_id)
+                candidate.queue_connections = queue.max_connections or None
+                self._queue_had_work.add(queue.id)
                 candidate.status = STATUS_PREPARING
                 candidate.message = "Preparing..."
                 candidate.started_at = candidate.started_at or time.time()
                 self._active_count += 1
             threading.Thread(target=self._run_job, args=(candidate,), name=f"mdm-job-{candidate.job_id}",
                              daemon=True).start()
+        self._check_queues_complete()
+
+    def _next_candidate(self):
+        """Caller holds self._lock. The Pending job that should start next:
+        only from running queues with a free slot, not before its start time;
+        highest effective priority (priority + aging) first, then list order."""
+        now = time.time()
+        queues = {q.id: q for q in self.queues.all()}
+        running_per_queue = collections.Counter(
+            self._queue_key(j, queues) for j in self._jobs if j.status in RUNNING_STATUSES)
+        best, best_score = None, None
+        for position, job in enumerate(self._jobs):
+            if job.status != STATUS_QUEUED or (job.start_at and job.start_at > now):
+                continue
+            q = queues.get(self._queue_key(job, queues))
+            if q is None or not q.running:
+                continue
+            if q.max_concurrent and running_per_queue[q.id] >= q.max_concurrent:
+                continue
+            waited = max(0.0, now - (job.queued_at or job.created_at))
+            score = (_clamp_priority(job.priority) + waited / AGING_SECONDS, -position)
+            if best_score is None or score > best_score:
+                best, best_score = job, score
+        return best
+
+    @staticmethod
+    def _queue_key(job, queues):
+        return job.queue_id if job.queue_id in queues else MAIN_QUEUE_ID
+
+    def _check_queues_complete(self):
+        """Fire 'queue_complete' once when a running queue that did work has
+        nothing left to do (its completion action / stop-when-empty)."""
+        finished = []
+        with self._lock:
+            queues = {q.id: q for q in self.queues.all()}
+            busy = {self._queue_key(j, queues) for j in self._jobs
+                    if j.status in RUNNING_STATUSES or j.status in (STATUS_QUEUED, STATUS_RETRYING)}
+            for qid in list(self._queue_had_work):
+                if qid not in busy:
+                    self._queue_had_work.discard(qid)
+                    # A queue the user stopped didn't "finish": never run its completion action.
+                    if qid in queues and queues[qid].running:
+                        finished.append(queues[qid])
+        for q in finished:
+            log.info("Queue %s finished its downloads", q.name)
+            if q.stop_when_empty and not q.is_main:
+                self.queues.set_running(q.id, False)
+            self._notify("queue_complete", q)
+
+    def _notify(self, event, payload):
+        for cb in list(self._subscribers):
+            try:
+                cb(event, payload)
+            except Exception:  # noqa: BLE001
+                log.exception("Subscriber callback raised for %s", event)
+
+    # ---------------- queues ---------------- #
+    def start_queue(self, queue_id):
+        """Run a queue: its Paused downloads go back to Pending and start as
+        slots free up (AB-style 'Start queue')."""
+        q = self.queues.set_running(queue_id, True)
+        for job in self.list_jobs():
+            if job.queue_id == q.id and job.status == STATUS_PAUSED and not job.from_history:
+                job.status = STATUS_QUEUED
+                job.queued_at = time.time()
+                job.message = "Waiting in queue..."
+                self._emit("resumed", job)
+        log.info("Queue %s started", q.name)
+        self._notify("queue_changed", q)
+        self._wake.set()
+        return q
+
+    def stop_queue(self, queue_id):
+        """Stop a queue: nothing new starts from it and its running downloads
+        are paused (kept resumable)."""
+        q = self.queues.set_running(queue_id, False)
+        with self._lock:
+            self._queue_had_work.discard(q.id)
+        for job in self.list_jobs():
+            if job.queue_id == q.id and (job.status in RUNNING_STATUSES or job.status == STATUS_RETRYING):
+                try:
+                    self.pause(job.job_id)
+                except ValueError:
+                    pass
+        log.info("Queue %s stopped", q.name)
+        self._notify("queue_changed", q)
+        return q
+
+    def delete_queue(self, queue_id):
+        q = self.queues.delete(queue_id)
+        for job in self.list_jobs():
+            if job.queue_id == q.id:
+                job.queue_id = MAIN_QUEUE_ID
+                self._emit("changed", job)
+        self._notify("queue_changed", q)
+        self._wake.set()
+        return q
+
+    def move_to_queue(self, job_id, queue_id):
+        job = self._require(job_id)
+        job.queue_id = self.queues.resolve(queue_id).id
+        self._emit("changed", job)
+        self._wake.set()
+
+    def set_priority(self, job_id, priority):
+        job = self._require(job_id)
+        job.priority = _clamp_priority(priority)
+        self._emit("changed", job)
+        self._wake.set()
+
+    def set_start_at(self, job_id, start_at):
+        """Schedule one download: it stays Pending until start_at (epoch s)."""
+        job = self._require(job_id)
+        job.start_at = float(start_at) if start_at else None
+        if job.status == STATUS_PAUSED and start_at:
+            job.status = STATUS_QUEUED
+            job.queued_at = time.time()
+        if start_at:
+            job.message = "Scheduled."
+        self._emit("changed", job)
+        self._wake.set()
+
+    def set_speed_limit(self, job_id, kbps):
+        """Per-download limit; applies immediately to a running direct (HTTP)
+        download, otherwise from its next start."""
+        job = self._require(job_id)
+        kbps = max(0, int(kbps or 0))
+        options = dict(job.options or {})
+        if kbps:
+            options["speed_limit_kbps"] = kbps
+        else:
+            options.pop("speed_limit_kbps", None)
+        job.options = options
+        limiter = getattr(job, "rate_limiter", None)
+        if limiter is not None:
+            limiter.set_rate(kbps * 1024)
+        self._emit("changed", job)
+
+    def restart(self, job_id):
+        """Throw away partial data and download again from zero."""
+        job = self._require(job_id)
+        if job.from_history:
+            raise ValueError("This row comes from history — use Download again to queue it.")
+        if job.status in RUNNING_STATUSES:
+            raise ValueError("Pause or cancel the download before restarting it.")
+        self._cleanup_partial(job)
+        job.progress, job.downloaded_bytes, job.total_bytes = 0.0, 0, None
+        job.error_message = job.error_hint = job.error_details = None
+        job.result_path, job.result_paths = None, []
+        job.cancel_event.clear()
+        job.pause_event.clear()
+        job.status = STATUS_QUEUED
+        job.queued_at = time.time()
+        job.message = "Restarting..."
+        self._emit("resumed", job)
+        self._wake.set()
+
+    def _require(self, job_id):
+        job = self.get_job(job_id)
+        if job is None:
+            raise KeyError(f"No such job: {job_id}")
+        return job
 
     def _provider_for(self, job):
         if job.provider is not None:
@@ -583,6 +768,10 @@ class DownloadManager:
             self._active_count = max(0, self._active_count - 1)
         self._wake.set()
 
+    def active_count(self):
+        with self._lock:
+            return self._active_count
+
     def _schedule_auto_retry(self, job, message):
         max_retries = int(self._settings.get("max_retries", 3) or 0)
         if job.retries >= max_retries or not is_transient_error(message):
@@ -597,6 +786,7 @@ class DownloadManager:
             if job.status == STATUS_RETRYING:  # user may have paused/cancelled/removed meanwhile
                 job.retries += 1
                 job.status = STATUS_QUEUED
+                job.queued_at = time.time()
                 job.message = "Waiting to retry..."
                 self._emit("resumed", job)
                 self._wake.set()
@@ -687,6 +877,13 @@ class DownloadManager:
         return len(restored)
 
 
+def _clamp_priority(value):
+    try:
+        return max(PRIORITY_LOW, min(PRIORITY_HIGH, int(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _pp_label(name):
     return {
         "Merger": "merging video and audio", "FFmpegMerger": "merging video and audio",
@@ -696,7 +893,7 @@ def _pp_label(name):
         "EmbedThumbnail": "embedding thumbnail", "EmbedSubtitle": "embedding subtitles",
         "FFmpegEmbedSubtitle": "embedding subtitles", "SubtitlesConvertor": "converting subtitles",
         "FFmpegSubtitlesConvertor": "converting subtitles", "MoveFiles": "finalizing",
-        "MoveFilesAfterDownload": "finalizing",
+        "MoveFilesAfterDownload": "finalizing", "VerifyChecksum": "verifying checksum",
     }.get(name, (name or "").lower())
 
 
