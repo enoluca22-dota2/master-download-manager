@@ -1,0 +1,48 @@
+# Master Download Manager — development / build requirements.
+#
+# End users never install any of this: the packaged app bundles everything
+# (see build.py). These are only for running from source and for building.
+#
+# The media engine (yt-dlp) is installed from the audited local source tree
+# that sits next to this project, not from GitHub:
+#
+#     python -m pip install ../yt-dlp-master        (no [default] extra: it would add GPL mutagen)
+#     python -m pip install -r requirements.txt
+#
+# `build.py setup` does both inside .venv.
+
+# Media engine extras that yt-dlp's [default] extra also pulls in; listed so a
+# plain `pip install -r requirements.txt` gets a working media engine too.
+yt-dlp-ejs==0.8.0          # YouTube JS challenge solver scripts (Unlicense)
+deno==2.9.7                # JS runtime binary used by yt-dlp-ejs (MIT)
+# mutagen is deliberately NOT used: it is GPL-2.0-or-later. Thumbnails are embedded with FFmpeg instead.
+pycryptodomex>=3.20        # AES for some HLS streams
+brotli>=1.1; implementation_name == "cpython"
+websockets>=13.0
+certifi
+
+# GUI
+customtkinter>=5.2.0
+Pillow>=10.0
+pywin32; sys_platform == "win32"
+
+# Local API used by the browser extensions
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+requests>=2.32.2
+
+# Tray + Windows notifications (the app degrades gracefully without them)
+pystray>=0.19; sys_platform == "win32"
+win11toast>=0.32; sys_platform == "win32"
+
+# Torrent engine
+libtorrent>=2.0
+
+# Testing
+pytest>=8.0
+pytest-asyncio>=0.23
+httpx>=0.27
+
+# Packaging
+pyinstaller>=6.3

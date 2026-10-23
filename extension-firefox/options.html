@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Master Download Manager — Settings</title>
+  <style>
+    body { font: 14px/1.5 "Segoe UI", Roboto, Arial, sans-serif; background: #0b1020; color: #f4f7ff; padding: 24px; max-width: 460px; }
+    h1 { font-size: 18px; margin-bottom: 4px; }
+    h2 { font-size: 14px; margin: 28px 0 4px; padding-top: 18px; border-top: 1px solid #2a3858; }
+    p.hint { color: #9aa9c6; font-size: 12px; margin-top: 0; }
+    label { display: block; margin: 16px 0 6px; font-weight: 600; }
+    input[type="text"], input[type="number"] {
+      width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid #2a3858;
+      background: #121a2e; color: #f4f7ff; box-sizing: border-box;
+    }
+    button { margin-top: 12px; padding: 9px 16px; border-radius: 8px; border: none; background: #386ee8; color: #fff; cursor: pointer; font-weight: 600; }
+    button.secondary { background: #17213a; border: 1px solid #2a3858; }
+    #status { margin-top: 12px; font-size: 12px; }
+    .ytd-row-flex { display: flex; gap: 8px; align-items: center; }
+    .ytd-row-flex input { flex: 1; }
+    ul#blocked-list { list-style: none; padding: 0; margin: 8px 0 0; }
+    ul#blocked-list li {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #121a2e; border: 1px solid #2a3858; border-radius: 8px;
+      padding: 8px 10px; margin-bottom: 6px; font-size: 13px;
+    }
+    ul#blocked-list button { margin: 0; padding: 4px 10px; font-size: 12px; background: #2a1620; color: #e66b7a; }
+    .ytd-checkbox-row { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-weight: 400; }
+    .ytd-checkbox-row input { width: auto; accent-color: #386ee8; }
+    .ytd-empty { color: #6f7fa2; font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Master Download Manager — Settings</h1>
+  <p class="hint">Open the Master Download Manager desktop app → Settings → Browser Integration to find your port and token.</p>
+
+  <label for="port">Local API port</label>
+  <input id="port" type="number" min="1" max="65535" />
+
+  <label for="token">Security token</label>
+  <input id="token" type="text" placeholder="Paste the token from Master Download Manager" />
+
+  <button id="save">Save Connection</button>
+  <button id="test" class="secondary">Test Connection</button>
+  <div id="status"></div>
+
+  <h2>Blocked sites</h2>
+  <p class="hint">Master Download Manager won't show its capture button on these sites. Add a site here, or use "Don't capture media from this site" in the capture popup.</p>
+  <div class="ytd-row-flex">
+    <input type="text" id="block-domain-input" placeholder="example.com" />
+    <button id="block-domain-add" class="secondary">Add</button>
+  </div>
+  <ul id="blocked-list"></ul>
+
+  <script src="ytd-client.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+* { box-sizing: border-box; }
+body {
+  width: 320px;
+  margin: 0;
+  background: #0b1020;
+  color: #f4f7ff;
+  font: 13px/1.4 "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.ytd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 8px;
+}
+
+.ytd-brand { font-weight: 800; font-size: 16px; letter-spacing: 0.04em; }
+
+.ytd-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9aa9c6;
+}
+.ytd-dot.ok { background: #4ed49a; }
+.ytd-dot.bad { background: #e66b7a; }
+
+.ytd-conn-text { padding: 0 16px 10px; color: #9aa9c6; font-size: 12px; }
+
+.ytd-section { padding: 6px 16px 12px; border-top: 1px solid #2a3858; }
+
+.ytd-media-title { font-weight: 700; margin-bottom: 8px; word-break: break-word; }
+
+.ytd-group-label {
+  color: #9aa9c6;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 6px 0;
+}
+
+.ytd-format-list, .ytd-recent-list { display: flex; flex-direction: column; gap: 6px; }
+
+.ytd-format-row, .ytd-recent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #121a2e;
+  border: 1px solid #2a3858;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.ytd-format-download {
+  background: #386ee8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ytd-format-download:disabled { opacity: 0.6; cursor: default; }
+
+.ytd-recent-status { font-size: 11px; color: #9aa9c6; }
+
+.ytd-site-name { font-weight: 700; margin-bottom: 4px; word-break: break-all; }
+.ytd-site-status { color: #9aa9c6; font-size: 12px; margin-bottom: 8px; }
+.ytd-status-ok { color: #4ed49a; }
+.ytd-status-bad { color: #e66b7a; }
+
+.ytd-link-btn {
+  background: none;
+  border: none;
+  color: #5b8cff;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.ytd-link-btn:hover { color: #7ea2ff; }
+
+.ytd-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+
+.ytd-footer button {
+  flex: 1;
+  background: #17213a;
+  color: #f4f7ff;
+  border: 1px solid #2a3858;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ytd-footer button:hover { background: #202d4b; }
+
+.ytd-send-btn {
+  margin-top: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; border: none;
+  background: #5286ff; color: #fff; font-weight: 600; cursor: pointer;
+}
+.ytd-send-btn:disabled { opacity: 0.6; cursor: default; }

@@ -1,0 +1,4 @@
+FFmpeg n9.0.2-22-g46d8f462ee (LGPL build)
+Downloaded from: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-01-13-06/ffmpeg-n9.0.2-22-g46d8f462ee-win64-lgpl-shared-9.0.zip
+SHA-256 of archive: 2a41605c6c28455c7029e5057f77cda18838203fa09d40bed6e6cac14200e1f5
+FFmpeg source: https://ffmpeg.org/download.html (git tag n9.0.2 + 22 commits, revision 46d8f462ee). Build scripts: https://github.com/BtbN/FFmpeg-Builds (release autobuild-2026-10-01-13-06).

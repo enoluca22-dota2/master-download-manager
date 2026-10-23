@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build environment and outputs
+.venv/
+build/
+dist/
+# Third-party executables staged by tools/fetch_tools.py (large; re-fetched and checksum-verified)
+vendor/
+
+# Runtime state from running from source (per-machine)
+settings.json
+settings.json.tmp
+download_history.json
+enagrio.log
+ytd.log
+
+# Packaged extension zips
+extension-chrome.zip
+extension-firefox.zip

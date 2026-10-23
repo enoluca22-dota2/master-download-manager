@@ -1,0 +1,18 @@
+Master Download Manager is installed.
+
+Getting started
+  * Click "+ Add URL" (or press Ctrl+V in the window) and paste a video or
+    playlist link, a direct file link, a magnet link, or open a .torrent file.
+  * Browser extension: open Settings -> Browser Integration in the app for the
+    extension folders and your security token.
+
+Everything the app needs (media engine, FFmpeg, JavaScript runtime, torrent
+engine) is included. It only uses the Internet for the downloads you start.
+
+Your settings, history and logs are stored in
+  %LOCALAPPDATA%\MasterDownloadManager
+and are kept if you uninstall.
+
+Third-party components and their licenses are listed in the "licenses"
+folder and in THIRD_PARTY_NOTICES.md inside the installation folder.
+Only download content you have the right to download.

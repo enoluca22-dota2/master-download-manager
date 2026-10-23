@@ -1,0 +1,2 @@
+deno 2.9.7
+deno source: https://github.com/denoland/deno (tag v2.9.7). Binary from the PyPI 'deno' wheel.

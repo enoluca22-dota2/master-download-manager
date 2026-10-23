@@ -1,0 +1,370 @@
+/* ------------------------------------------------------------------ */
+/* Color tokens — dark by default (matches YouTube's own default), with */
+/* a light variant for users/pages that prefer it. Never hardcode a     */
+/* color outside these tokens so both themes stay readable.             */
+/* ------------------------------------------------------------------ */
+#ytd-download-button,
+.ytd-floating-popup,
+.ytd-toast {
+  --ytd-bg: #17213acc;
+  --ytd-bg-solid: #17213a;
+  --ytd-surface: #121a2ee6;
+  --ytd-surface-solid: #121a2e;
+  --ytd-border: #2a3858;
+  --ytd-text: #f4f7ff;
+  --ytd-muted: #9aa9c6;
+  --ytd-primary: #5b8cff;
+  --ytd-primary-strong: #386ee8;
+  --ytd-success: #4ed49a;
+  --ytd-danger: #e66b7a;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  #ytd-download-button,
+  .ytd-floating-popup,
+  .ytd-toast {
+    --ytd-bg: #ffffffee;
+    --ytd-bg-solid: #ffffff;
+    --ytd-surface: #f3f5fbf2;
+    --ytd-surface-solid: #f3f5fb;
+    --ytd-border: #dbe2f0;
+    --ytd-text: #16213a;
+    --ytd-muted: #5b6a8a;
+    --ytd-primary: #386ee8;
+    --ytd-primary-strong: #2b5bd0;
+    --ytd-success: #178b61;
+    --ytd-danger: #c23b4b;
+    color-scheme: light;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* The Master Download Manager button                                                  */
+/* ------------------------------------------------------------------ */
+#ytd-download-button {
+  position: fixed; /* overridden to "absolute" via .ytd-in-player when a player host is found */
+  right: 24px;
+  bottom: 96px;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, var(--ytd-primary-strong), var(--ytd-primary));
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 8px 8px 12px;
+  font: 700 12.5px/1 "Segoe UI", Roboto, Arial, sans-serif;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 16px rgba(15, 30, 60, 0.35);
+  cursor: grab;
+  transition: box-shadow 150ms ease, opacity 150ms ease;
+  user-select: none;
+  touch-action: none;
+}
+
+#ytd-download-button.ytd-in-player {
+  position: absolute;
+  right: auto;
+  bottom: auto;
+}
+
+#ytd-download-button:hover {
+  box-shadow: 0 8px 22px rgba(15, 30, 60, 0.45);
+}
+
+#ytd-download-button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+#ytd-download-button.ytd-dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+  box-shadow: 0 10px 26px rgba(15, 30, 60, 0.5);
+  transition: none;
+}
+
+.ytd-btn-icon { display: inline-flex; opacity: 0.95; }
+.ytd-btn-label { padding-right: 2px; }
+
+.ytd-btn-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 120ms ease, background 120ms ease;
+  padding: 0;
+  margin-left: 2px;
+}
+.ytd-btn-x:hover,
+.ytd-btn-x:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.3);
+}
+.ytd-btn-x:focus-visible { outline: 1px solid #fff; outline-offset: 1px; }
+
+/* ------------------------------------------------------------------ */
+/* Floating popup (format selector — clicking a row downloads it        */
+/* immediately, no separate confirmation dialog)                        */
+/* ------------------------------------------------------------------ */
+.ytd-floating-popup {
+  position: fixed; /* viewport-relative and freely draggable — see content.js */
+  width: 368px;
+  max-height: 460px;
+  overflow-y: auto;
+  z-index: 2147483000;
+  background: var(--ytd-bg-solid);
+  color: var(--ytd-text);
+  border-radius: 14px;
+  border: 1px solid var(--ytd-border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  font: 12.5px/1.4 "Segoe UI", Roboto, Arial, sans-serif;
+  animation: ytd-pop-in 130ms ease;
+}
+
+@keyframes ytd-pop-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.ytd-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--ytd-border);
+  position: sticky;
+  top: 0;
+  background: var(--ytd-bg-solid);
+  z-index: 1;
+  cursor: grab;
+  user-select: none;
+}
+.ytd-popup-header:active { cursor: grabbing; }
+.ytd-popup-title { font-size: 13px; }
+
+.ytd-popup-close {
+  background: transparent;
+  border: none;
+  color: var(--ytd-muted);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 6px;
+  display: flex;
+}
+.ytd-popup-close:hover { background: var(--ytd-surface-solid); color: var(--ytd-text); }
+.ytd-popup-close:focus-visible { outline: 2px solid var(--ytd-primary); outline-offset: 1px; }
+
+/* Video / Playlist tabs — only rendered when the current page is a
+   playlist watch page. */
+.ytd-tab-row {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--ytd-border);
+  position: sticky;
+  top: 45px; /* sits directly under the sticky header */
+  background: var(--ytd-bg-solid);
+  z-index: 1;
+}
+.ytd-tab {
+  background: transparent;
+  border: none;
+  color: var(--ytd-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.ytd-tab:hover { color: var(--ytd-text); }
+.ytd-tab-active { color: var(--ytd-text); border-bottom-color: var(--ytd-primary); }
+.ytd-tab:focus-visible { outline: 2px solid var(--ytd-primary); outline-offset: 1px; }
+
+.ytd-popup-body { padding: 8px 14px 14px; }
+
+/* Flat, dense single-line rows (list-box style, not cards) — one row per
+   format, all specs packed onto one line like a classic download manager. */
+.ytd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 6px;
+  margin-bottom: 1px;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+.ytd-row[role="button"]:hover { background: var(--ytd-surface-solid); }
+.ytd-row[role="button"]:focus-visible { outline: 2px solid var(--ytd-primary); outline-offset: 1px; }
+.ytd-row.ytd-audio-row { cursor: default; }
+
+.ytd-row-icon { flex-shrink: 0; display: flex; }
+.ytd-row-icon-video { color: var(--ytd-primary); }
+.ytd-row-icon-audio { color: #d9a441; }
+
+.ytd-row-line {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+}
+.ytd-hd-tag { font-size: 8px; font-weight: 800; color: var(--ytd-primary); margin-left: 1px; }
+
+.ytd-row-main { flex: 1; min-width: 0; }
+
+.ytd-pill-group { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ytd-pill {
+  background: var(--ytd-surface-solid);
+  border: 1px solid var(--ytd-border);
+  color: var(--ytd-text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ytd-pill:hover { border-color: var(--ytd-primary); color: var(--ytd-primary); }
+.ytd-pill:focus-visible { outline: 2px solid var(--ytd-primary); outline-offset: 1px; }
+
+.ytd-more-link { justify-content: space-between; }
+.ytd-chevron { color: var(--ytd-muted); font-size: 15px; align-self: center; }
+
+/* Playlist tab: select-all header, scrollable checklist, sticky action row */
+.ytd-playlist-selectall {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--ytd-border);
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.ytd-playlist-selectall input { accent-color: var(--ytd-primary-strong); flex-shrink: 0; }
+.ytd-playlist-selectall span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ytd-playlist-list { display: flex; flex-direction: column; }
+.ytd-playlist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.ytd-playlist-row:hover { background: var(--ytd-surface-solid); }
+.ytd-playlist-row input { accent-color: var(--ytd-primary-strong); flex-shrink: 0; }
+.ytd-playlist-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ytd-playlist-row-duration { color: var(--ytd-muted); font-size: 10.5px; flex-shrink: 0; }
+
+.ytd-playlist-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 4px 4px;
+  margin-top: 8px;
+  border-top: 1px solid var(--ytd-border);
+  position: sticky;
+  bottom: 0;
+  background: var(--ytd-bg-solid);
+}
+
+/* Loading / error states */
+.ytd-loading, .ytd-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ytd-muted);
+  padding: 18px 2px;
+  justify-content: center;
+  text-align: center;
+}
+.ytd-error { color: var(--ytd-danger); padding: 10px 2px; }
+
+.ytd-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--ytd-border);
+  border-top-color: var(--ytd-primary);
+  animation: ytd-spin 700ms linear infinite;
+  flex-shrink: 0;
+}
+@keyframes ytd-spin { to { transform: rotate(360deg); } }
+
+.ytd-error-block { text-align: center; padding: 14px 4px; }
+.ytd-error-title { font-weight: 700; margin-bottom: 4px; }
+.ytd-error-detail { color: var(--ytd-muted); font-size: 11px; margin-bottom: 12px; }
+
+.ytd-retry-row { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
+
+.ytd-btn {
+  background: var(--ytd-surface-solid);
+  color: var(--ytd-text);
+  border: 1px solid var(--ytd-border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+.ytd-btn:hover { background: var(--ytd-bg-solid); border-color: var(--ytd-primary); }
+.ytd-btn:focus-visible { outline: 2px solid var(--ytd-primary); outline-offset: 1px; }
+.ytd-btn-primary { background: var(--ytd-primary-strong); border-color: var(--ytd-primary-strong); color: #fff; }
+.ytd-btn-primary:hover { background: var(--ytd-primary); border-color: var(--ytd-primary); }
+.ytd-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* Toast — free-floating and draggable by grabbing it anywhere (like the
+   popup's header), not pinned to a fixed corner. */
+.ytd-toast {
+  position: fixed;
+  z-index: 2147483001;
+  background: var(--ytd-surface-solid);
+  border: 1px solid var(--ytd-border);
+  color: var(--ytd-text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: 12px/1.4 "Segoe UI", Roboto, Arial, sans-serif;
+  width: 280px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: ytd-pop-in 130ms ease;
+  cursor: grab;
+  user-select: none;
+}
+.ytd-toast:active { cursor: grabbing; }
+.ytd-toast-ok { border-left: 3px solid var(--ytd-success); }
+.ytd-toast-bad { border-left: 3px solid var(--ytd-danger); }
+
+.ytd-toast-row { display: flex; align-items: flex-start; gap: 8px; }
+.ytd-toast-text { flex: 1; min-width: 0; word-break: break-word; }
+
+.ytd-toast-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--ytd-muted);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 5px;
+  display: flex;
+  margin: -2px -2px 0 0;
+}
+.ytd-toast-close:hover { background: var(--ytd-bg-solid); color: var(--ytd-text); }
+.ytd-toast-close:focus-visible { outline: 2px solid var(--ytd-primary); outline-offset: 1px; }

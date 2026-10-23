@@ -1,0 +1,322 @@
+[
+  {
+    "name": "yt-dlp",
+    "version": "2026.08.19",
+    "license": "Unlicense",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "yt-dlp-ejs",
+    "version": "0.8.0",
+    "license": "Unlicense AND MIT AND ISC",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "deno",
+    "version": "2.9.7",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "customtkinter",
+    "version": "6.0.0",
+    "license": "Creative Commons Zero v1.0 Universal",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "darkdetect",
+    "version": "0.8.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "packaging",
+    "version": "26.3",
+    "license": "Apache-2.0 OR BSD-2-Clause",
+    "files": [
+      "LICENSE",
+      "LICENSE.APACHE",
+      "LICENSE.BSD"
+    ]
+  },
+  {
+    "name": "pillow",
+    "version": "12.3.0",
+    "license": "MIT-CMU",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pywin32",
+    "version": "312",
+    "license": "PSF",
+    "files": [
+      "license.txt",
+      "com-License.txt",
+      "LICENSE",
+      "pythonwin-License.txt",
+      "Scintilla-License.txt",
+      "idle-LICENSE.txt",
+      "win32-License.txt"
+    ]
+  },
+  {
+    "name": "pystray",
+    "version": "0.19.5",
+    "license": "LGPLv3",
+    "files": [
+      "COPYING",
+      "COPYING.LGPL"
+    ]
+  },
+  {
+    "name": "six",
+    "version": "1.17.0",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "win11toast",
+    "version": "0.36.3",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "winrt-runtime",
+    "version": "3.2.1",
+    "license": "MIT",
+    "files": [
+      "pywinrt-LICENSE.txt"
+    ]
+  },
+  {
+    "name": "fastapi",
+    "version": "0.142.2",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "starlette",
+    "version": "1.7.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "LICENSE.md"
+    ]
+  },
+  {
+    "name": "pydantic",
+    "version": "2.13.5",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pydantic_core",
+    "version": "2.46.5",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "annotated-types",
+    "version": "0.8.0",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "annotated-doc",
+    "version": "0.0.5",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "typing_extensions",
+    "version": "4.16.0",
+    "license": "PSF-2.0",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "typing-inspection",
+    "version": "0.4.4",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "anyio",
+    "version": "4.15.1",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "idna",
+    "version": "3.20",
+    "license": "BSD-3-Clause",
+    "files": [
+      "LICENSE.md"
+    ]
+  },
+  {
+    "name": "h11",
+    "version": "0.16.0",
+    "license": "MIT",
+    "files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "click",
+    "version": "8.5.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "colorama",
+    "version": "0.4.6",
+    "license": "",
+    "files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "uvicorn",
+    "version": "0.54.0",
+    "license": "BSD-3-Clause",
+    "files": [
+      "LICENSE.md"
+    ]
+  },
+  {
+    "name": "opentelemetry-api",
+    "version": "1.45.0",
+    "license": "Apache-2.0",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "requests",
+    "version": "2.34.2",
+    "license": "Apache-2.0",
+    "files": [
+      "LICENSE",
+      "NOTICE"
+    ]
+  },
+  {
+    "name": "urllib3",
+    "version": "2.8.0",
+    "license": "MIT",
+    "files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "certifi",
+    "version": "2026.7.22",
+    "license": "MPL-2.0",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "charset-normalizer",
+    "version": "3.5.2",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "brotli",
+    "version": "1.2.0",
+    "license": "MIT",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pycryptodomex",
+    "version": "3.23.0",
+    "license": "BSD, Public Domain",
+    "files": [
+      "AUTHORS.rst",
+      "LICENSE.rst"
+    ]
+  },
+  {
+    "name": "websockets",
+    "version": "17.1",
+    "license": "BSD-3-Clause",
+    "files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "libtorrent",
+    "version": "2.1.1",
+    "license": "BSD",
+    "files": [
+      "libtorrent-LICENSE.txt",
+      "boost-LICENSE_1_0.txt",
+      "openssl-LICENSE.txt"
+    ]
+  },
+  {
+    "name": "Python (incl. Tcl/Tk, OpenSSL, libffi, SQLite, zlib, bzip2, xz)",
+    "version": "3.12.10",
+    "license": "PSF-2.0 (+ component licenses in LICENSE.txt)",
+    "files": [
+      "LICENSE.txt",
+      "tk8.6-license.terms"
+    ]
+  },
+  {
+    "name": "ffmpeg (executable)",
+    "version": "see SOURCE.txt",
+    "license": "LGPL-3.0-or-later",
+    "files": [
+      "LICENSE.txt",
+      "SOURCE.txt"
+    ]
+  },
+  {
+    "name": "deno (executable)",
+    "version": "see SOURCE.txt",
+    "license": "MIT",
+    "files": [
+      "LICENSE.md",
+      "SOURCE.txt"
+    ]
+  }
+]
