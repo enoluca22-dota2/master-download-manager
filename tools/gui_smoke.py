@@ -183,18 +183,110 @@ def main():
             shot(dlg.win, "07-add-playlist")
         dlg.win.destroy()
 
+    # --- 4.0: batch paste with duplicate detection ---
+    srv.files["a.zip"] = os.urandom(200_000)
+    srv.files["b.iso"] = os.urandom(300_000)
+    links = f"{srv.base}/files/a.zip\n{srv.base}/files/b.iso\n{srv.base}/files/a.zip\n{srv.base}/cd/ubuntu-test.iso"
+    dlg = app.open_add_dialog(links, analyze=True)
+    ok = wait(root, lambda: bool(dlg._batch), 10)
+    check("batch mode lists unique links", ok and len(dlg._batch) == 3, f"{len(dlg._batch)}")
+    pump(root, 2)
+    shot(dlg.win, "05b-add-batch")
+    check("batch flags an already-downloaded link", any(r["note"] for r in dlg._batch),
+          str([r["note"] for r in dlg._batch]))
+    before = len(app.manager.list_jobs())
+    dlg.submit()
+    pump(root, 0.5)
+    new_jobs = app.manager.list_jobs()[before:]
+    check("batch queues the ticked links", len(new_jobs) == 2, f"{len(new_jobs)}")
+    ok = wait(root, lambda: all(j.status in (STATUS_COMPLETED, STATUS_FAILED) for j in new_jobs), 30)
+    check("batch downloads complete", all(j.status == STATUS_COMPLETED for j in new_jobs),
+          str([j.status for j in new_jobs]))
+
+    # --- 4.0: queues, scheduled start, per-queue concurrency ---
+    q = app.manager.queues.create("Night", max_concurrent=1)
+    srv.files["n1.bin"] = os.urandom(150_000)
+    srv.files["n2.bin"] = os.urandom(150_000)
+    qjobs = [app.manager.add_job(url=f"{srv.base}/files/{n}", kind="file", quality_label="Direct file",
+                                 format_key="file", download_dir=downloads, engine="http", queue_id=q.id)
+             for n in ("n1.bin", "n2.bin")]
+    app.sidebar.rebuild()
+    app.sidebar.select(f"queue:{q.id}")
+    pump(root, 1)
+    check("custom queue waits until started", all(j.status == "Pending" for j in qjobs))
+    shot(root, "08a-queue-view")
+    app.start_current_queue()
+    ok = wait(root, lambda: all(j.status == STATUS_COMPLETED for j in qjobs), 30)
+    check("starting the queue downloads its items", ok, str([j.status for j in qjobs]))
+    app.open_queues(q.id)
+    pump(root, 1.2)
+    qw = app._queues_window
+    shot(qw.win, "08b-queues-window")
+    for page in ("Speed profiles", "Recurring downloads"):
+        qw.page.set(page)
+        qw._show_page()
+        pump(root, 0.6)
+        shot(qw.win, f"08c-{page.replace(' ', '_')}")
+    qw.win.destroy()
+
+    # --- 4.0: completion action countdown can be cancelled ---
+    from ytd.gui.power_dialog import PowerCountdown
+    fired = []
+    pc = PowerCountdown(app, "Night", "shutdown", on_confirm=lambda: fired.append(1), seconds=3)
+    pump(root, 0.8)
+    shot(pc.win, "08d-power-countdown")
+    pc.cancel()
+    pump(root, 3.5)
+    check("power action cancelled never fires", not fired)
+
+    # --- 4.0: sorting, column chooser, limited mode ---
+    app.sidebar.select("all")
+    pump(root, 0.5)
+    app._sort_by("size")
+    pump(root, 0.4)
+    sizes = [j.total_bytes or 0 for j in app.grid.rows]
+    check("sorting by size (largest first)", sizes == sorted(sizes, reverse=True), str(sizes[:6]))
+    app._sort_by("size")
+    app._sort_by("size")  # third click: back to queue order
+    pump(root, 0.3)
+    check("third header click restores queue order (drag enabled)", app.grid.can_reorder())
+    for col in app.grid.columns:
+        if col["key"] in ("connections", "source", "completed"):
+            app.grid._toggle_column(col, True)
+    pump(root, 0.4)
+    shot(root, "08e-extra-columns")
+    app.toggle_limited_mode()
+    pump(root, 0.4)
+    from ytd import bandwidth
+    check("limited mode caps the global rate", bandwidth.manager.global_limiter.rate > 0)
+    app.toggle_limited_mode()
+
     # --- views, settings ---
     pump(root, 1)
     shot(root, "08-main-with-jobs")
-    for view in ("Active", "Completed", "Failed", "Archives", "Torrents", "History"):
-        app.set_view(view)
+    for view in ("status:unfinished", "status:finished", "status:failed", "cat:Compressed", "cat:Torrents",
+                 "cat:Media sites", "cat:Videos"):
+        app.sidebar.select(view)
         pump(root, 0.3)
-    shot(root, "09-view-history")
-    app.set_view("All")
+    app.sidebar.select("cat:Compressed")
+    pump(root, 0.4)
+    check("Compressed category shows the .zip/.iso downloads",
+          len(app.grid.rows) >= 2 and all(j.job_id for j in app.grid.rows), f"{len(app.grid.rows)} rows")
+    shot(root, "09-view-compressed")
+    app.sidebar.select("all")
+
+    # --- theme switching (live rebuild) ---
+    for mode in ("Light", "Black", "Dark"):
+        app.set_appearance_mode(mode)
+        pump(root, 0.8)
+        shot(root, f"09b-theme-{mode}")
+    check("theme switch rebuilds the window", root.winfo_exists() and app.grid.winfo_exists())
+
     app.open_settings()
     pump(root, 1.5)
     sw = app._settings_window
-    for i, section in enumerate(("General", "Downloads", "Network", "Torrent", "Browser Integration", "Advanced", "About", "Licenses")):
+    from ytd.gui.settings_window import SECTIONS
+    for i, section in enumerate(SECTIONS):
         sw.show(section)
         pump(root, 0.6 if section == "About" else 0.3)
         shot(sw.win, f"10-settings-{i:02d}-{section.replace(' ', '_')}")
@@ -204,8 +296,34 @@ def main():
           sw.footer_note.cget("text"))
     sw.win.destroy()
 
-    rows = len(app.tree.get_children())
+    rows = len(app.grid.rows)
     check("main list shows queued jobs", rows >= 3, f"{rows} rows")
+
+    # --- scale: thousands of history rows stay responsive ---
+    from ytd.models import DownloadJob
+    fake = []
+    for i in range(3000):
+        j = DownloadJob(f"https://host.example/f{i}.zip", "file", "Direct file", "", False, downloads)
+        j.status, j.title, j.from_history, j.total_bytes, j.progress = STATUS_COMPLETED, f"Archive {i}.zip", True, 1000 + i, 100.0
+        j.result_path = os.path.join(downloads, f"Archive {i}.zip")
+        fake.append(j)
+    with app.manager._lock:
+        app.manager._jobs.extend(fake)
+    t0 = time.perf_counter()
+    app._mark_structure()
+    pump(root, 0.05)
+    app._rebuild_list()
+    root.update()
+    rebuild_ms = (time.perf_counter() - t0) * 1000
+    t0 = time.perf_counter()
+    for _ in range(40):
+        app.grid._yoff += app.grid.row_h * 5
+        app.grid._draw()
+    scroll_ms = (time.perf_counter() - t0) * 1000 / 40
+    check("3,000-row list rebuild under 1.5 s", rebuild_ms < 1500, f"{rebuild_ms:.0f} ms")
+    check("scroll redraw under 40 ms per frame", scroll_ms < 40, f"{scroll_ms:.1f} ms/frame")
+    print(f"[perf] rows={len(app.grid.rows)} rebuild={rebuild_ms:.0f}ms scroll_frame={scroll_ms:.1f}ms")
+    shot(root, "11-many-rows")
     app.quit_app()
     srv.__exit__(None, None, None)
     del seeder

@@ -1,77 +1,166 @@
 """Master Download Manager — main window.
 
+Layout (modelled on AB Download Manager, with MDM's own branding):
+    toolbar      New Download · Paste · Resume · Pause · Start/Stop queue · Queues · Stop all · Delete · Settings · search
+    sidebar      category tree with counts (All / file types / Torrents / Media sites), Finished / Unfinished /
+                 Failed, and the download queues
+    list         virtualised DataGrid: progress bars, sortable/resizable/hideable columns, multi-select,
+                 drag-and-drop reordering
+    status bar   active / queued / finished, total ↓ and ↑ speed, speed-limit indicator (click: limited mode)
+
 Threading model: engines and the local API run on background threads and
 never touch Tk. They report through DownloadManager.subscribe(); the
 callback only records *which* jobs changed. A short main-thread timer
-(`_pump`) drains those marks plus any call_in_main() requests and updates
-only the affected rows, so the UI stays responsive with thousands of rows
-and many simultaneous downloads.
+(`_pump`) drains those marks plus any call_in_main() requests and redraws
+only what's visible, so the UI stays responsive with thousands of rows and
+many simultaneous downloads.
 """
 
+import datetime
 import os
 import queue
 import threading
+import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
+from urllib.parse import urlparse
 
 import customtkinter as ctk
 
-from .. import notifications, tray
+from .. import bandwidth, notifications, power, tray
 from ..api.server import run_server
-from ..config import APP_ICON_FILE, APP_NAME, QUEUE_FILE
+from ..categories import MEDIA_SITES, TORRENTS, extension_of, is_media_site, job_category
+from ..config import APP_ICON_FILE, APP_NAME, QUEUE_FILE, QUEUES_FILE, SCHEDULER_FILE
 from ..engine import DownloadManager, _format_speed
-from ..history import HistoryStore, delete_entry_file, library_category
+from ..history import HistoryStore, delete_entry_file
 from ..logging_setup import get_logger
 from ..models import (
-    ACTIVE_STATUSES, RUNNING_STATUSES, STATUS_CANCELLED, STATUS_COMPLETED, STATUS_DOWNLOADING, STATUS_FAILED,
-    STATUS_PAUSED, STATUS_QUEUED, STATUS_RETRYING, TERMINAL_STATUSES,
+    ACTIVE_STATUSES, PRIORITY_HIGH, PRIORITY_LABELS, PRIORITY_LOW, PRIORITY_NORMAL, RUNNING_STATUSES,
+    STATUS_CANCELLED, STATUS_COMPLETED, STATUS_DOWNLOADING, STATUS_FAILED, STATUS_PAUSED, STATUS_PROCESSING,
+    STATUS_QUEUED, STATUS_RETRYING, STATUS_SEEDING, TERMINAL_STATUSES,
 )
+from ..queues import MAIN_QUEUE_ID, QueueStore
 from ..router import classify
+from ..scheduler import Scheduler, SchedulerStore
 from ..settings_store import SettingsStore
 from .. import tools
 from . import effects as glass_effects
+from . import icons
 from . import theme as glass_theme
 from .add_dialog import AddDialog
-from .common import (
-    ENGINE_LABEL, STATUS_ICON, job_date_text, open_file, open_folder, progress_text, size_text, truncate,
-)
+from .common import ENGINE_LABEL, human_size, job_date_text, open_file, open_folder, truncate
+from .datagrid import DataGrid
 from .details import DetailsWindow
 from .settings_window import SettingsWindow
-from .theme import COLORS, RADIUS, fade_in_toplevel, font, glass_button, glass_card, glass_entry, glass_icon_button
+from .sidebar import CATEGORY_ICONS, Sidebar
+from .theme import COLORS, color, font, glass_card, glass_button
 
 log = get_logger()
 
-DARK_COLORS = {name: pair[1] for name, pair in COLORS.items()}
-LIGHT_COLORS = {name: pair[0] for name, pair in COLORS.items()}
-
-VIEWS = [
-    ("Downloads", [("All", "▣"), ("Active", "▶"), ("Completed", "✓"), ("Failed", "✕")]),
-    ("Library", [("Videos", "🎬"), ("Audio", "🎵"), ("Torrents", "🧲"), ("Archives", "🗜"), ("Other", "📄")]),
-    ("", [("History", "🕘")]),
-]
-COLUMNS = ("name", "engine", "status", "progress", "size", "speed", "eta", "added")
-HEADINGS = {"name": "Name", "engine": "Engine", "status": "Status", "progress": "Progress", "size": "Size",
-            "speed": "Speed", "eta": "ETA", "added": "Added"}
-WIDTHS = {"name": 300, "engine": 66, "status": 140, "progress": 150, "size": 128, "speed": 84, "eta": 62, "added": 118}
 PUMP_MS = 120
+COUNTS_EVERY_S = 0.8
+
+COLUMNS = [
+    dict(key="name", title="Name", width=300, min=180, kind="name", stretch=True, required=True),
+    dict(key="type", title="Type", width=70, visible=False),
+    dict(key="size", title="Size", width=92, anchor="e"),
+    dict(key="downloaded", title="Downloaded", width=96, anchor="e", visible=False),
+    dict(key="progress", title="Progress", width=170, kind="progress"),
+    dict(key="status", title="Status", width=150, kind="status"),
+    dict(key="speed", title="Speed", width=88, anchor="e"),
+    dict(key="eta", title="Time left", width=82, anchor="e"),
+    dict(key="connections", title="Conn.", width=58, anchor="center", visible=False),
+    dict(key="engine", title="Engine", width=70, visible=False, muted=True),
+    dict(key="queue", title="Queue", width=96, visible=False, muted=True),
+    dict(key="added", title="Date added", width=128, muted=True),
+    dict(key="completed", title="Completed", width=128, visible=False, muted=True),
+    dict(key="source", title="Source", width=150, visible=False, muted=True),
+]
+for _c in COLUMNS:
+    _c["default_width"], _c["default_visible"] = _c["width"], _c.get("visible", True)
+
+DATE_FILTERS = ("Any time", "Today", "Last 7 days", "Last 30 days")
+VIEW_TITLES = {"all": "All Downloads", "status:finished": "Finished", "status:unfinished": "Unfinished",
+               "status:failed": "Failed"}
 
 
-def _library_key(job):
-    return library_category({"engine": job.engine, "kind": job.kind, "file": job.result_path or ""})
-
-
-def view_matches(view, job):
-    if view == "All":
+def view_matches(view, job, queues_by_id=None):
+    if view == "all":
         return True
-    if view == "Active":
-        return job.status in ACTIVE_STATUSES
-    if view == "Completed":
-        return job.status == STATUS_COMPLETED
-    if view == "Failed":
-        return job.status == STATUS_FAILED
-    if view == "History":
-        return job.status in TERMINAL_STATUSES
-    return job.status == STATUS_COMPLETED and _library_key(job) == view
+    kind, _, arg = view.partition(":")
+    if kind == "status":
+        if arg == "finished":
+            return job.status == STATUS_COMPLETED
+        if arg == "unfinished":
+            return job.status in ACTIVE_STATUSES
+        if arg == "failed":
+            return job.status in (STATUS_FAILED, STATUS_CANCELLED)
+    if kind == "cat":
+        if arg == MEDIA_SITES:
+            return is_media_site(job)
+        return job_category(job) == arg
+    if kind == "queue":
+        if job.from_history or job.status in TERMINAL_STATUSES:
+            return False
+        qid = job.queue_id if (queues_by_id is None or job.queue_id in queues_by_id) else MAIN_QUEUE_ID
+        return qid == arg
+    return True
+
+
+def _job_state(job):
+    if job.status in (STATUS_DOWNLOADING, STATUS_PROCESSING, STATUS_SEEDING) or job.status == "Preparing":
+        return "active"
+    if job.status == STATUS_COMPLETED:
+        return "done"
+    if job.status in (STATUS_FAILED,):
+        return "failed"
+    if job.status in (STATUS_PAUSED, STATUS_RETRYING):
+        return "paused"
+    return "idle"
+
+
+def _fmt_time(ts):
+    if not ts:
+        return ""
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+class ToolButton(tk.Frame):
+    """Icon-over-label toolbar button (flat, with hover and disabled states)."""
+
+    def __init__(self, parent, app, glyph, text, command, accent=False):
+        super().__init__(parent, bd=0, highlightthickness=0, cursor="hand2")
+        self.app, self.command, self.accent, self.enabled = app, command, accent, True
+        s = app.scale
+        self.icon = tk.Label(self, text=icons.glyph(glyph), font=icons.icon_font(13), bd=0)
+        self.icon.pack(pady=(round(5 * s), 0), padx=round(10 * s))
+        self.label = tk.Label(self, text=text, font=("Segoe UI", 8), bd=0)
+        self.label.pack(pady=(round(1 * s), round(5 * s)), padx=round(8 * s))
+        self._hover = False
+        for w in (self, self.icon, self.label):
+            w.bind("<Enter>", lambda e: self._set_hover(True))
+            w.bind("<Leave>", lambda e: self._set_hover(False))
+            w.bind("<ButtonRelease-1>", lambda e: self.enabled and self.command())
+        self.paint()
+
+    def _set_hover(self, on):
+        self._hover = on
+        self.paint()
+
+    def set_enabled(self, enabled):
+        if enabled != self.enabled:
+            self.enabled = enabled
+            self.configure(cursor="hand2" if enabled else "")
+            self.paint()
+
+    def paint(self):
+        c = self.app.c
+        bg = c["surface_hover"] if (self._hover and self.enabled) else c["toolbar"]
+        fg = (c["primary"] if self.accent else c["text"]) if self.enabled else c["faint"]
+        for w in (self, self.icon, self.label):
+            w.configure(bg=bg)
+        self.icon.configure(fg=fg)
+        self.label.configure(fg=c["text"] if self.enabled else c["faint"])
 
 
 class MasterDownloadManagerApp:
@@ -79,31 +168,35 @@ class MasterDownloadManagerApp:
         self.root = root
         root.title(APP_NAME)
         root.geometry("1240x760")
-        root.minsize(1000, 620)
+        root.minsize(980, 600)
 
         self.settings = SettingsStore()
         self.history = HistoryStore()
-        self.manager = DownloadManager(self.settings, self.history, queue_file=QUEUE_FILE)
+        self.manager = DownloadManager(self.settings, self.history, queue_file=QUEUE_FILE,
+                                       queue_store=QueueStore(QUEUES_FILE))
         self.manager.seed_from_history(self.history.all())
         if self.settings.get("restore_queue_on_start", True):
             self.manager.restore_queue()
+        self.scheduler = Scheduler(self.manager, SchedulerStore(SCHEDULER_FILE))
 
         self.appearance_mode = self.settings.get("appearance_mode", "Dark")
-        if self.appearance_mode not in ("Dark", "Light"):
+        if self.appearance_mode not in glass_theme.APPEARANCE_MODES:
             self.appearance_mode = "Dark"
-        ctk.set_appearance_mode(self.appearance_mode.lower())
+        glass_theme.apply_palette(self.appearance_mode, self.settings.get("accent_color", "Indigo"))
         glass_theme.install_ctk_theme()
         if os.path.isfile(APP_ICON_FILE):
             try:
                 root.iconbitmap(APP_ICON_FILE)
             except tk.TclError:
                 pass
-        root.configure(fg_color=COLORS["background"])
-        self._configure_ttk_style()
+        icons.family(root)
+        try:
+            self.scale = ctk.ScalingTracker.get_widget_scaling(root)
+        except Exception:  # noqa: BLE001
+            self.scale = 1.0
 
-        self.view = "All"
+        self.view = "all"
         self.details_windows = {}
-        self._iid_job = {}
         self._dirty = set()
         self._structure_dirty = True
         self._dirty_lock = threading.Lock()
@@ -112,34 +205,388 @@ class MasterDownloadManagerApp:
         self._closing = False
         self._last_clipboard = ""
         self._clipboard_seen = set()
+        self._last_counts_at = 0.0
+        self._power_dialog = None
         self.tray_icon = None
         self.api_thread = self.api_server = None
+        self._engine_status_text = None
 
-        root.grid_rowconfigure(1, weight=1)
-        root.grid_columnconfigure(1, weight=1)
-        self._build_toolbar()
-        self._build_sidebar()
-        self._build_main()
-        self._build_status_bar()
-        self._bind_keys()
+        self._build_ui()
 
         self.manager.subscribe(self._on_engine_event)
         self.manager.start()
+        self.scheduler.start()
         if self.settings.get("api_enabled", True):
             self._start_local_api()
         self._setup_tray()
         root.protocol("WM_DELETE_WINDOW", self._on_close_request)
         if self.settings.get("clipboard_monitor_enabled"):
             root.after(1500, self._poll_clipboard)
+        if self.settings.get("update_check_on_start"):
+            root.after(8000, self._background_update_check)
         root.after(PUMP_MS, self._pump)
 
-    # ================================================== threading bridge === #
+    # ======================================================= construction === #
+    def _colors(self):
+        self.c = {k: color(k) for k in ("background", "sidebar", "surface", "surface_hover", "text", "muted",
+                                        "faint", "primary", "border", "success", "warning", "danger", "selected")}
+        self.c["toolbar"] = self.c["sidebar"]
+
+    def _configure_ttk_style(self):
+        """ttk widgets still used inside dialogs (checklists for torrent files,
+        playlist items, subtitles, batch links) follow the theme too."""
+        from tkinter import ttk
+        c = self.c
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Treeview", background=c["background"], foreground=c["text"], fieldbackground=c["background"],
+                        bordercolor=c["border"], lightcolor=c["background"], darkcolor=c["background"],
+                        borderwidth=0, rowheight=round(28 * self.scale), font=("Segoe UI", 10), relief="flat")
+        style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        style.configure("Treeview.Heading", background=c["surface"], foreground=c["muted"], relief="flat",
+                        bordercolor=c["border"], lightcolor=c["surface"], darkcolor=c["surface"], padding=(8, 6),
+                        font=("Segoe UI Semibold", 10))
+        style.map("Treeview", background=[("selected", c["selected"])], foreground=[("selected", c["text"])])
+        style.map("Treeview.Heading", background=[("active", c["surface_hover"])], foreground=[("active", c["text"])])
+        style.configure("Glass.Vertical.TScrollbar", background=c["border"], troughcolor=c["background"],
+                        bordercolor=c["background"], arrowsize=0, relief="flat", width=8)
+        style.map("Glass.Vertical.TScrollbar", background=[("active", c["muted"])])
+
+    def _build_ui(self):
+        self._colors()
+        self._configure_ttk_style()
+        root = self.root
+        root.configure(fg_color=COLORS["background"])
+        root.grid_rowconfigure(1, weight=1)
+        root.grid_columnconfigure(1, weight=1)
+        self._build_toolbar()
+        self.sidebar = Sidebar(root, self, width=212)
+        self.sidebar.grid(row=1, column=0, sticky="ns")
+        self._build_main()
+        self._build_status_bar()
+        self._bind_keys()
+        self.sidebar.select(self.view if self.view in self.sidebar.items else "all")
+        from .backdrop import apply_glass_backdrop, set_titlebar_theme
+        dark = glass_theme.is_dark()
+        root.after(50, lambda: set_titlebar_theme(root, dark, self.c["toolbar"], self.c["text"]))
+        if self.settings.get("mica_backdrop"):
+            # Tk paints its own opaque client area, so Mica shows in the title bar/frame only.
+            root.after(200, lambda: apply_glass_backdrop(root, mica=True, dark=dark))
+
+    def _rebuild_ui(self):
+        """Theme change: rebuild the main window's widgets in the new colours.
+        Downloads keep running; only the views are recreated."""
+        for w in (self._toolbar, self.sidebar, self._main, self._statusbar):
+            w.destroy()
+        self._build_ui()
+        self._mark_structure()
+
+    # ============================================================ toolbar === #
+    def _build_toolbar(self):
+        c, s = self.c, self.scale
+        bar = tk.Frame(self.root, bg=c["toolbar"], height=round(62 * s), bd=0, highlightthickness=0)
+        bar.grid(row=0, column=0, columnspan=2, sticky="ew")
+        bar.pack_propagate(False)
+        self._toolbar = bar
+        tk.Frame(bar, bg=c["border"], height=1).place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
+
+        brand = tk.Frame(bar, bg=c["toolbar"])
+        brand.pack(side="left", padx=(round(14 * s), round(10 * s)))
+        badge = ctk.CTkLabel(brand, text="MDM", width=40, height=32, corner_radius=8, fg_color=COLORS["primary"],
+                             text_color=COLORS["on_primary"], font=font(12, "bold"))
+        badge.pack(side="left")
+
+        new = ctk.CTkButton(bar, text=f"{icons.glyph('add')}  New Download", height=36, corner_radius=10,
+                            font=ctk.CTkFont(family="Segoe UI Semibold", size=12),
+                            command=lambda: self.open_add_dialog(),
+                            fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"],
+                            text_color=COLORS["on_primary"])
+        new.pack(side="left", padx=(round(6 * s), round(10 * s)))
+
+        self.tb = {}
+
+        def add(key, glyph, text, cmd, accent=False):
+            b = ToolButton(bar, self, glyph, text, cmd, accent)
+            b.pack(side="left", padx=1)
+            self.tb[key] = b
+
+        def sep():
+            tk.Frame(bar, bg=c["border"], width=1, height=round(30 * s)).pack(side="left", padx=round(6 * s))
+
+        add("paste", "paste", "Paste URL", self.paste_and_add)
+        sep()
+        add("resume", "play", "Resume", lambda: self.act_on_selection("resume"))
+        add("pause", "pause", "Pause", lambda: self.act_on_selection("pause"))
+        sep()
+        add("start_queue", "play", "Start Queue", lambda: self.start_current_queue())
+        add("stop_queue", "stop", "Stop Queue", lambda: self.stop_current_queue())
+        add("queues", "queue", "Queues", self.open_queues)
+        sep()
+        add("stop_all", "stop", "Stop All", self.stop_all)
+        add("delete", "delete", "Delete", lambda: self.act_on_selection("remove"))
+        sep()
+        add("settings", "settings", "Settings", self.open_settings)
+
+        right = tk.Frame(bar, bg=c["toolbar"])
+        right.pack(side="right", padx=round(14 * s))
+        if not hasattr(self, "search_var"):
+            self.search_var = tk.StringVar()
+            self.search_var.trace_add("write", lambda *_: self._mark_structure())
+        self.search_entry = ctk.CTkEntry(right, placeholder_text=f"{icons.glyph('search')}  Search downloads",
+                                         width=230, height=34, corner_radius=10, font=font(12),
+                                         fg_color=COLORS["surface_deep"], border_color=COLORS["border"])
+        self.search_entry.pack(side="right")
+        glass_theme._sync_entry_with_variable(self.search_entry, self.search_var)
+
+    # ================================================================ main === #
+    def _build_main(self):
+        main = ctk.CTkFrame(self.root, corner_radius=0, fg_color=COLORS["background"])
+        main.grid(row=1, column=1, sticky="nsew")
+        main.grid_rowconfigure(1, weight=1)
+        main.grid_columnconfigure(0, weight=1)
+        self._main = main
+
+        head = ctk.CTkFrame(main, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 6))
+        self.view_title = ctk.CTkLabel(head, text="", font=font(16, "bold"))
+        self.view_title.pack(side="left")
+        self.view_sub = ctk.CTkLabel(head, text="", font=font(12), text_color=COLORS["muted"])
+        self.view_sub.pack(side="left", padx=(10, 0))
+        if not hasattr(self, "date_filter"):
+            self.date_filter = tk.StringVar(value=DATE_FILTERS[0])
+        ctk.CTkOptionMenu(head, values=list(DATE_FILTERS), variable=self.date_filter, width=128, height=28,
+                          font=font(11), command=lambda _v: self._mark_structure()).pack(side="right")
+        glass_button(head, "Clear completed", self._clear_completed, variant="ghost", width=116, height=28,
+                     size=11).pack(side="right", padx=4)
+        glass_button(head, "Retry failed", self._retry_failed, variant="ghost", width=96, height=28,
+                     size=11).pack(side="right", padx=4)
+
+        card = glass_card(main, radius="lg", fg_color=COLORS["background"])
+        card.grid(row=1, column=0, sticky="nsew", padx=(12, 12), pady=(0, 8))
+        card.grid_rowconfigure(0, weight=1)
+        card.grid_columnconfigure(0, weight=1)
+        self.grid = DataGrid(card, COLUMNS, self._cell, key=lambda j: j.job_id,
+                             on_select=lambda rows: self._update_buttons(), on_activate=self._activate,
+                             on_context=self._on_context, on_sort=self._sort_by, on_reorder=self._on_reorder,
+                             on_columns_changed=lambda st: self.settings.set("visible_columns", st),
+                             on_key=lambda k: k == "delete" and self.act_on_selection("remove"))
+        self.grid.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self.grid.restore_column_state(self.settings.get("visible_columns") or [])
+        self.grid.set_sort(self._sort["column"], self._sort["reverse"])
+
+    # ============================================================== cells === #
+    def _cell(self, job, key):
+        if key == "name":
+            cat = TORRENTS if job.engine == "torrent" else job_category(job)
+            glyph = icons.glyph(CATEGORY_ICONS.get(cat, "file"))
+            return glyph, job.display_name or job.url
+        if key == "type":
+            ext = extension_of(job.result_path or job.filename_override or "")
+            return ext.upper() if ext else {"video": "Video", "audio": "Audio", "torrent": "Torrent"}.get(job.kind, "")
+        if key == "size":
+            return human_size(job.total_bytes, "") if job.total_bytes else ("" if job.status != STATUS_COMPLETED else "—")
+        if key == "downloaded":
+            return human_size(job.downloaded_bytes, "") if job.downloaded_bytes else ""
+        if key == "progress":
+            state = _job_state(job)
+            if job.status == STATUS_COMPLETED:
+                return 1.0, "100%", "done"
+            frac = (job.progress or 0) / 100.0
+            label = f"{job.progress:.0f}%" if job.total_bytes or job.progress else ""
+            return frac, label, state
+        if key == "status":
+            text = job.status
+            if job.status == STATUS_FAILED and job.error_message:
+                text = f"Failed: {job.error_message}"
+            elif job.status == STATUS_RETRYING:
+                text = f"Retrying (#{job.retries + 1})"
+            elif job.status == STATUS_QUEUED and job.start_at and job.start_at > time.time():
+                text = f"Scheduled {datetime.datetime.fromtimestamp(job.start_at):%a %H:%M}"
+            elif job.status == STATUS_QUEUED and not self._queue_running(job):
+                text = "Waiting for queue"
+            elif job.status == STATUS_SEEDING and job.speed_text:
+                text = "Seeding"
+            if job.priority == PRIORITY_HIGH and job.status in ACTIVE_STATUSES:
+                text += "  ↑"
+            return text, _job_state(job)
+        if key == "speed":
+            if job.status in RUNNING_STATUSES:
+                return job.speed_text or "—"
+            return ""
+        if key == "eta":
+            return job.eta_text if job.status == STATUS_DOWNLOADING else ""
+        if key == "connections":
+            return str(job.connections) if job.connections else ""
+        if key == "engine":
+            return ENGINE_LABEL.get(job.engine, job.engine or "")
+        if key == "queue":
+            q = self.manager.queues.get(job.queue_id)
+            return q.name if q else ""
+        if key == "added":
+            return job_date_text(job)
+        if key == "completed":
+            return _fmt_time(job.finished_at) if job.status == STATUS_COMPLETED and not job.from_history else (
+                job_date_text(job) if job.from_history and job.status == STATUS_COMPLETED else "")
+        if key == "source":
+            if job.url.startswith("magnet:"):
+                return "magnet link"
+            try:
+                return urlparse(job.url).hostname or os.path.basename(job.url)
+            except ValueError:
+                return ""
+        return ""
+
+    def _queue_running(self, job):
+        q = self.manager.queues.resolve(job.queue_id)
+        return q.running
+
+    # ========================================================= list logic === #
+    def _visible_jobs(self):
+        jobs = self.manager.list_jobs()
+        order = {j.job_id: i for i, j in enumerate(jobs)}
+        queues = {q.id: q for q in self.manager.queues.all()}
+        jobs = [j for j in jobs if view_matches(self.view, j, queues)]
+        query = self.search_var.get().strip().lower()
+        if query:
+            jobs = [j for j in jobs if query in (j.display_name or "").lower() or query in j.url.lower()]
+        since = {"Today": 0, "Last 7 days": 7, "Last 30 days": 30}.get(self.date_filter.get())
+        if since is not None:
+            cutoff = datetime.datetime.combine(datetime.date.today() - datetime.timedelta(days=since),
+                                               datetime.time()).timestamp()
+            jobs = [j for j in jobs if self._job_time(j) >= cutoff]
+        col = self._sort["column"]
+        if col:
+            keyfn = {
+                "name": lambda j: (j.display_name or "").lower(), "engine": lambda j: j.engine or "",
+                "status": lambda j: j.status, "progress": lambda j: j.progress or 0,
+                "size": lambda j: j.total_bytes or 0, "downloaded": lambda j: j.downloaded_bytes or 0,
+                "speed": lambda j: j.speed_bps or 0, "eta": lambda j: j.eta_seconds if j.eta_seconds is not None else 1e18,
+                "added": self._job_time, "completed": lambda j: j.finished_at or 0,
+                "type": lambda j: extension_of(j.result_path or ""), "connections": lambda j: j.connections or 0,
+                "queue": lambda j: j.queue_id or "", "source": lambda j: j.url,
+            }.get(col, lambda j: 0)
+            return sorted(jobs, key=keyfn, reverse=self._sort["reverse"])
+        # Default: unfinished downloads in queue order, then finished ones newest first.
+        return sorted(jobs, key=lambda j: (0, order[j.job_id], 0) if j.status in ACTIVE_STATUSES
+                      else (1, -(j.finished_at or j.created_at), order[j.job_id]))
+
+    @staticmethod
+    def _job_time(job):
+        if job.from_history:
+            date = getattr(job, "history_date", None)
+            if date:
+                try:
+                    return datetime.datetime.strptime(date, "%Y-%m-%d %H:%M").timestamp()
+                except ValueError:
+                    pass
+        return job.created_at
+
+    def _rebuild_list(self):
+        jobs = self._visible_jobs()
+        self.grid.set_rows(jobs)
+        title = VIEW_TITLES.get(self.view)
+        if title is None:
+            kind, _, arg = self.view.partition(":")
+            if kind == "queue":
+                q = self.manager.queues.get(arg)
+                title = f"Queue · {q.name}" if q else "Queue"
+            else:
+                title = arg
+        self.view_title.configure(text=title)
+        self.view_sub.configure(text=f"{len(jobs):,} item{'s' if len(jobs) != 1 else ''}")
+        query = self.search_var.get().strip()
+        if jobs:
+            self.grid.set_empty_text("")
+        elif query:
+            self.grid.set_empty_text(f"Nothing matches “{query}”.")
+        elif self.view == "all":
+            self.grid.set_empty_text("No downloads yet.\nClick New Download or press Ctrl+V to paste a link, "
+                                     "magnet or .torrent.")
+        else:
+            self.grid.set_empty_text("Nothing here yet.")
+        self._update_buttons()
+
+    def _refresh_counts(self):
+        jobs = self.manager.list_jobs()
+        queues = {q.id: q for q in self.manager.queues.all()}
+        counts = {"all": len(jobs)}
+        for j in jobs:
+            cat = TORRENTS if j.engine == "torrent" else job_category(j)
+            counts[f"cat:{cat}"] = counts.get(f"cat:{cat}", 0) + 1
+            if is_media_site(j):
+                counts[f"cat:{MEDIA_SITES}"] = counts.get(f"cat:{MEDIA_SITES}", 0) + 1
+            if j.status == STATUS_COMPLETED:
+                counts["status:finished"] = counts.get("status:finished", 0) + 1
+            elif j.status in ACTIVE_STATUSES:
+                counts["status:unfinished"] = counts.get("status:unfinished", 0) + 1
+                qid = j.queue_id if j.queue_id in queues else MAIN_QUEUE_ID
+                counts[f"queue:{qid}"] = counts.get(f"queue:{qid}", 0) + 1
+            elif j.status in (STATUS_FAILED, STATUS_CANCELLED):
+                counts["status:failed"] = counts.get("status:failed", 0) + 1
+        missing = {f"queue:{q}" for q in queues} - set(self.sidebar.items)
+        if missing or len([k for k in self.sidebar.items if k.startswith("queue:")]) != len(queues):
+            self.sidebar.rebuild()
+        self.sidebar.update_counts(counts, {q.id for q in queues.values() if q.running})
+        self._last_counts_at = time.monotonic()
+
+    def set_view(self, view):
+        self.view = view
+        self._mark_structure()
+
+    def _mark_structure(self):
+        with self._dirty_lock:
+            self._structure_dirty = True
+
+    def _sort_by(self, col):
+        if self._sort["column"] != col:
+            self._sort = {"column": col, "reverse": col in ("size", "speed", "added", "completed", "progress")}
+        elif self._sort["reverse"] == (col in ("size", "speed", "added", "completed", "progress")):
+            self._sort["reverse"] = not self._sort["reverse"]
+        else:
+            self._sort = {"column": None, "reverse": False}  # third click: back to queue order (drag enabled)
+        self.grid.set_sort(self._sort["column"], self._sort["reverse"])
+        self._mark_structure()
+
+    def _on_reorder(self, jobs, target_index):
+        rows = self.grid.rows
+        moving = {j.job_id for j in jobs if j.status in ACTIVE_STATUSES and not j.from_history}
+        if not moving:
+            return
+        before = next((r.job_id for r in rows[target_index:] if r.job_id not in moving), None)
+        self.manager.move_before([j.job_id for j in jobs if j.job_id in moving], before)
+        self._mark_structure()
+
+    def selected_jobs(self):
+        return self.grid.selected()
+
+    def _update_buttons(self):
+        jobs = self.selected_jobs()
+        statuses = {j.status for j in jobs}
+        tb = self.tb
+        tb["resume"].set_enabled(any(j.status == STATUS_PAUSED or (j.status in (STATUS_FAILED, STATUS_CANCELLED)
+                                                                    and not j.from_history) for j in jobs))
+        tb["pause"].set_enabled(bool(statuses & (set(RUNNING_STATUSES) | {STATUS_QUEUED, STATUS_RETRYING})))
+        tb["delete"].set_enabled(bool(jobs))
+        q = self._current_queue()
+        all_jobs = self.manager.list_jobs()
+        has_items = any(j.queue_id == q.id and j.status in (STATUS_QUEUED, STATUS_PAUSED) for j in all_jobs)
+        tb["start_queue"].set_enabled(not q.running or has_items)
+        tb["stop_queue"].set_enabled(q.running)
+        tb["stop_all"].set_enabled(any(j.status in RUNNING_STATUSES or j.status in (STATUS_QUEUED, STATUS_RETRYING)
+                                       for j in all_jobs))
+
+    # =========================================================== pump/bridge === #
     def call_in_main(self, fn, *args):
         """Thread-safe: run fn(*args) on the Tk main thread soon."""
         self._ui_calls.put((fn, args))
 
     def _on_engine_event(self, event, job):
         """Background thread — only records what changed."""
+        if event in ("queue_complete", "queue_changed"):
+            if event == "queue_complete":
+                self.call_in_main(self._queue_complete, job)
+            self._mark_structure()
+            return
         with self._dirty_lock:
             if event == "progress":
                 self._dirty.add(job.job_id)
@@ -166,262 +613,22 @@ class MasterDownloadManagerApp:
         with self._dirty_lock:
             dirty, self._dirty = self._dirty, set()
             structure, self._structure_dirty = self._structure_dirty, False
-        if structure:
-            self._rebuild_list()
-        elif dirty:
-            self._update_rows(dirty)
-        if structure or dirty:
-            self._refresh_status_bar()
+        try:
+            if structure:
+                self._rebuild_list()
+            elif dirty:
+                if self._sort["column"] in ("speed", "progress", "eta", "status"):
+                    self._rebuild_list()  # live-sorted columns re-sort as values change
+                else:
+                    self.grid.refresh(dirty)
+            if structure or dirty:
+                self._refresh_status_bar()
+                if structure or time.monotonic() - self._last_counts_at > COUNTS_EVERY_S:
+                    self._refresh_counts()
+                    self._update_buttons()
+        except tk.TclError:
+            pass  # window being rebuilt/destroyed
         self.root.after(PUMP_MS, self._pump)
-
-    # ============================================================== theme === #
-    def palette(self):
-        return LIGHT_COLORS if self.appearance_mode == "Light" else DARK_COLORS
-
-    def apply_glass_window(self, win):
-        """Plain window background + the app icon (CTkToplevel would otherwise
-        replace the icon with CustomTkinter's default shortly after opening)."""
-        win.configure(fg_color=COLORS["background"])
-        if os.path.isfile(APP_ICON_FILE):
-            def set_icon():
-                try:
-                    if win.winfo_exists():
-                        win.iconbitmap(APP_ICON_FILE)
-                except tk.TclError:
-                    pass
-            win.after(250, set_icon)
-
-    def set_appearance_mode(self, mode):
-        if mode not in ("Dark", "Light"):
-            return
-        self.appearance_mode = mode
-        self.settings.set("appearance_mode", mode)
-        ctk.set_appearance_mode(mode.lower())
-        self._configure_ttk_style()
-
-    def _configure_ttk_style(self):
-        p = self.palette()
-        field_bg = p["background"]
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Treeview", background=field_bg, foreground=p["text"], fieldbackground=field_bg,
-                        bordercolor=p["border"], lightcolor=p["background"], darkcolor=p["background"],
-                        borderwidth=0, rowheight=32, font=("Segoe UI", 10), relief="flat")
-        style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # no outer border/focus ring
-        style.configure("Treeview.Heading", background=p["surface"], foreground=p["muted"], relief="flat",
-                        bordercolor=p["border"], lightcolor=p["surface"], darkcolor=p["surface"],
-                        padding=(8, 8), font=("Segoe UI Semibold", 10))
-        style.map("Treeview", background=[("selected", p["selected"])], foreground=[("selected", p["text"])])
-        style.map("Treeview.Heading", background=[("active", p["surface_hover"])], foreground=[("active", p["text"])])
-        style.configure("Glass.Vertical.TScrollbar", background=p["border"], troughcolor=field_bg, bordercolor=field_bg,
-                        arrowsize=0, relief="flat", width=8)
-        style.map("Glass.Vertical.TScrollbar", background=[("active", p["muted"])])
-        if hasattr(self, "tree"):
-            self._configure_tags()
-
-    def _configure_tags(self):
-        p = self.palette()
-        self.tree.tag_configure("row_a", background=p["background"])
-        self.tree.tag_configure("row_b", background=p["surface_deep"])
-        self.tree.tag_configure("running", background=p["surface_hover"])
-        self.tree.tag_configure("failed", foreground=p["danger"])
-        self.tree.tag_configure("done", foreground=p["muted"])
-
-    # ============================================================= toolbar === #
-    def _build_toolbar(self):
-        bar = ctk.CTkFrame(self.root, height=58, corner_radius=0, fg_color=COLORS["sidebar"])
-        bar.grid(row=0, column=0, columnspan=2, sticky="ew")
-        bar.grid_propagate(False)
-        self._toolbar = bar
-        ctk.CTkFrame(bar, height=1, corner_radius=0, fg_color=COLORS["border"]).place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
-
-        brand = ctk.CTkFrame(bar, fg_color="transparent")
-        brand.pack(side="left", padx=(16, 18), pady=8)
-        ctk.CTkLabel(brand, text="MDM", width=44, height=36, corner_radius=RADIUS["sm"], fg_color=COLORS["primary"],
-                     text_color=COLORS["on_primary"], font=font(13, "bold")).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(brand, text=APP_NAME, text_color=COLORS["text"], font=font(15, "bold")).pack(side="left")
-
-        actions = ctk.CTkFrame(bar, fg_color="transparent")
-        actions.pack(side="left", pady=8)
-        glass_button(actions, "+  Add URL", lambda: self.open_add_dialog(), variant="primary", width=104, height=36).pack(side="left", padx=3)
-        glass_button(actions, "Paste", self.paste_and_add, width=86, height=36).pack(side="left", padx=3)
-        glass_button(actions, "Torrent file", self.add_torrent_file, width=96, height=36).pack(side="left", padx=3)
-        glass_button(actions, "Magnet", self.add_magnet, width=96, height=36).pack(side="left", padx=3)
-        ctk.CTkFrame(actions, width=1, height=26, fg_color=COLORS["border"]).pack(side="left", padx=10)
-        glass_button(actions, "▶ Resume all", self.manager.resume_all, width=104, height=36).pack(side="left", padx=3)
-        glass_button(actions, "⏸ Pause all", self.manager.pause_all, width=96, height=36).pack(side="left", padx=3)
-
-        right = ctk.CTkFrame(bar, fg_color="transparent")
-        right.pack(side="right", padx=16, pady=8)
-        self.search_var = tk.StringVar()
-        glass_entry(right, textvariable=self.search_var, placeholder="Search…", height=36, width=200).pack(side="left", padx=(0, 8))
-        self.search_var.trace_add("write", lambda *_: self._mark_structure())
-        glass_icon_button(right, "⚙", self.open_settings, size=36).pack(side="left")
-
-    # ============================================================= sidebar === #
-    def _build_sidebar(self):
-        rail = ctk.CTkFrame(self.root, width=176, corner_radius=0, fg_color=COLORS["sidebar"])
-        rail.grid(row=1, column=0, sticky="ns")
-        rail.grid_propagate(False)
-        rail.pack_propagate(False)
-        self._sidebar = rail
-        ctk.CTkFrame(rail, width=1, corner_radius=0, fg_color=COLORS["border"]).place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
-        self._view_buttons = {}
-        self._view_counts = {}
-        for section, items in VIEWS:
-            if section:
-                ctk.CTkLabel(rail, text=section.upper(), font=font(10, "bold"), text_color=COLORS["faint"],
-                             anchor="w").pack(fill="x", padx=18, pady=(14, 2))
-            else:
-                ctk.CTkFrame(rail, height=1, fg_color=COLORS["border_soft"]).pack(fill="x", padx=14, pady=(12, 4))
-            for name, icon in items:
-                btn = glass_button(rail, name, lambda n=name: self.set_view(n), variant="ghost",
-                                   width=152, height=32, anchor="w", weight="normal")
-                btn.pack(padx=12, pady=1)
-                self._view_buttons[name] = btn
-        self.set_view("All")
-
-    def set_view(self, name):
-        self.view = name
-        for n, btn in self._view_buttons.items():
-            btn.configure(fg_color=COLORS["surface_hover"] if n == name else "transparent",
-                          text_color=COLORS["text"] if n == name else COLORS["muted"])
-        glass_theme.apply_active_nav_indicator(self._sidebar, self._view_buttons[name])
-        self._mark_structure()
-
-    def _mark_structure(self):
-        with self._dirty_lock:
-            self._structure_dirty = True
-
-    # ================================================================ list === #
-    def _build_main(self):
-        card = glass_card(self.root, radius="lg")
-        card.grid(row=1, column=1, sticky="nsew", padx=12, pady=(12, 0))
-        card.grid_rowconfigure(1, weight=1)
-        card.grid_columnconfigure(0, weight=1)
-
-        bar = ctk.CTkFrame(card, fg_color="transparent")
-        bar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(10, 4))
-        self.view_title = ctk.CTkLabel(bar, text="", font=font(15, "bold"))
-        self.view_title.pack(side="left", padx=(4, 14))
-        self._sel_buttons = []
-        for text, action, width in (("▶ Resume", "resume", 84), ("⏸ Pause", "pause", 78), ("■ Cancel", "cancel", 80),
-                                    ("↻ Retry", "retry", 74), ("🗑 Remove", "remove", 88), ("📂 Folder", "folder", 84),
-                                    ("▲", "up", 34), ("▼", "down", 34)):
-            b = glass_button(bar, text, lambda a=action: self.act_on_selection(a), width=width, height=30, size=11)
-            b.pack(side="left", padx=2)
-            self._sel_buttons.append(b)
-        glass_button(bar, "Clear completed", self._clear_completed, variant="ghost", width=120, height=30, size=11).pack(side="right", padx=2)
-        glass_button(bar, "Retry failed", self._retry_failed, variant="ghost", width=100, height=30, size=11).pack(side="right", padx=2)
-
-        self.empty_label = ctk.CTkLabel(card, text="", font=font(13), text_color=COLORS["faint"], justify="center")
-        self.tree = ttk.Treeview(card, columns=COLUMNS, show="headings", selectmode="extended")
-        for col in COLUMNS:
-            self.tree.heading(col, text=HEADINGS[col], command=lambda c=col: self._sort_by(c))
-            self.tree.column(col, width=WIDTHS[col], anchor="w" if col in ("name", "status", "progress") else "center",
-                             stretch=(col == "name"))
-        vsb = ttk.Scrollbar(card, orient="vertical", command=self.tree.yview, style="Glass.Vertical.TScrollbar")
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.grid(row=1, column=0, sticky="nsew", padx=(8, 0), pady=(0, 8))
-        vsb.grid(row=1, column=1, sticky="ns", padx=(4, 8), pady=(0, 8))
-        self.empty_label.place(in_=self.tree, relx=0.5, rely=0.45, anchor="center")
-        self.tree.bind("<Double-1>", self._on_double_click)
-        self.tree.bind("<Button-3>", self._on_right_click)
-        self.tree.bind("<<TreeviewSelect>>", lambda e: self._update_selection_buttons())
-        self._configure_tags()
-
-    def _visible_jobs(self):
-        jobs = self.manager.list_jobs()
-        order = {j.job_id: i for i, j in enumerate(jobs)}
-        jobs = [j for j in jobs if view_matches(self.view, j)]
-        query = self.search_var.get().strip().lower()
-        if query:
-            jobs = [j for j in jobs if query in (j.display_name or "").lower() or query in j.url.lower()]
-        col = self._sort["column"]
-        if col:
-            key = {
-                "name": lambda j: (j.display_name or "").lower(), "engine": lambda j: j.engine or "",
-                "status": lambda j: j.status, "progress": lambda j: j.progress or 0,
-                "size": lambda j: j.total_bytes or 0, "speed": lambda j: j.speed_bps or 0,
-                "eta": lambda j: j.eta_seconds or 0, "added": lambda j: j.created_at,
-            }[col]
-            return sorted(jobs, key=key, reverse=self._sort["reverse"])
-        # Default: unfinished downloads in queue order, then finished ones newest first.
-        return sorted(jobs, key=lambda j: (0, order[j.job_id], 0) if j.status in ACTIVE_STATUSES
-                      else (1, -(j.finished_at or j.created_at), order[j.job_id]))
-
-    def _row_values(self, job):
-        status = f"{STATUS_ICON.get(job.status, '')} {job.status}"
-        if job.status == STATUS_FAILED and job.error_message:
-            status += f": {job.error_message}"
-        elif job.status == STATUS_RETRYING:
-            status += f" (#{job.retries + 1})"
-        speed = job.speed_text if (job.status in RUNNING_STATUSES) else ""
-        eta = job.eta_text if job.status == STATUS_DOWNLOADING else ""
-        return (truncate(job.display_name, 90), ENGINE_LABEL.get(job.engine, job.engine or ""), truncate(status, 60),
-                progress_text(job), size_text(job), speed or "—", eta or "—", job_date_text(job))
-
-    def _row_tags(self, job, idx):
-        tags = ["row_a" if idx % 2 == 0 else "row_b"]
-        if job.status in RUNNING_STATUSES:
-            tags.append("running")
-        elif job.status == STATUS_FAILED:
-            tags.append("failed")
-        elif job.status in (STATUS_COMPLETED, STATUS_CANCELLED):
-            tags.append("done")
-        return tuple(tags)
-
-    def _rebuild_list(self):
-        selected = {self._iid_job[i].job_id for i in self.tree.selection() if i in self._iid_job}
-        jobs = self._visible_jobs()
-        self.tree.delete(*self.tree.get_children())
-        self._iid_job.clear()
-        for idx, job in enumerate(jobs):
-            iid = str(job.job_id)
-            self.tree.insert("", "end", iid=iid, values=self._row_values(job), tags=self._row_tags(job, idx))
-            self._iid_job[iid] = job
-        keep = [str(j) for j in selected if str(j) in self._iid_job]
-        if keep:
-            self.tree.selection_set(keep)
-        counts = len(jobs)
-        self.view_title.configure(text=f"{self.view}  ·  {counts}")
-        if jobs:
-            self.empty_label.configure(text="")
-        else:
-            query = self.search_var.get().strip()
-            text = (f"Nothing matches “{query}”." if query else
-                    "No downloads yet.\nClick “+ Add URL” or press Ctrl+V to paste a link, magnet or torrent."
-                    if self.view == "All" else f"Nothing in {self.view} yet.")
-            self.empty_label.configure(text=text)
-            self.empty_label.lift()
-        self._update_selection_buttons()
-
-    def _update_rows(self, job_ids):
-        children = self.tree.get_children()
-        index = {iid: i for i, iid in enumerate(children)}
-        for job_id in job_ids:
-            iid = str(job_id)
-            job = self._iid_job.get(iid)
-            if job is None or not self.tree.exists(iid):
-                continue
-            if not view_matches(self.view, job):
-                self._mark_structure()
-                continue
-            self.tree.item(iid, values=self._row_values(job), tags=self._row_tags(job, index.get(iid, 0)))
-        self._update_selection_buttons()
-
-    def _sort_by(self, col):
-        reverse = self._sort["column"] == col and not self._sort["reverse"]
-        self._sort = {"column": col, "reverse": reverse}
-        self._mark_structure()
-
-    def selected_jobs(self):
-        return [self._iid_job[i] for i in self.tree.selection() if i in self._iid_job]
-
-    def _update_selection_buttons(self):
-        state = "normal" if self.tree.selection() else "disabled"
-        for b in self._sel_buttons:
-            b.configure(state=state)
 
     # ============================================================= actions === #
     def act(self, action, jobs):
@@ -432,7 +639,10 @@ class MasterDownloadManagerApp:
                 if action == "pause":
                     self.manager.pause(job.job_id)
                 elif action == "resume":
-                    self.manager.resume(job.job_id)
+                    if job.status in (STATUS_FAILED, STATUS_CANCELLED):
+                        self.manager.retry(job.job_id)
+                    else:
+                        self.manager.resume(job.job_id)
                 elif action == "cancel":
                     self.manager.cancel(job.job_id)
                 elif action == "retry":
@@ -440,6 +650,8 @@ class MasterDownloadManagerApp:
                         self.open_add_dialog(job.url, analyze=True)
                     else:
                         self.manager.retry(job.job_id)
+                elif action == "restart":
+                    self.manager.restart(job.job_id)
                 elif action == "up":
                     self.manager.move_up(job.job_id)
                 elif action == "down":
@@ -463,18 +675,29 @@ class MasterDownloadManagerApp:
         elif action == "folder":
             job = jobs[0]
             open_folder(job.download_dir, job.result_path)
-        elif action in ("pause", "resume"):
-            relevant = [j for j in jobs if (j.status == STATUS_PAUSED) == (action == "resume")]
-            self.act(action, relevant or jobs)
+        elif action == "pause":
+            self.act(action, [j for j in jobs if j.status in RUNNING_STATUSES or j.status in (STATUS_QUEUED, STATUS_RETRYING)])
+        elif action == "resume":
+            self.act(action, [j for j in jobs if j.status == STATUS_PAUSED or (
+                j.status in (STATUS_FAILED, STATUS_CANCELLED) and not j.from_history)])
         else:
             if action == "down":
                 jobs = list(reversed(jobs))
             self.act(action, jobs)
 
+    def stop_all(self):
+        """Stop everything that's running or waiting (kept resumable)."""
+        self.manager.pause_all()
+        self._mark_structure()
+
     def remove_jobs(self, jobs):
         running = [j for j in jobs if j.status in RUNNING_STATUSES]
-        if running and not messagebox.askyesno("Remove downloads", f"{len(running)} selected download(s) are active. "
-                                               "Cancel and remove them? (Downloaded files are kept.)"):
+        text = (f"Remove {len(jobs)} download(s) from the list?" if len(jobs) > 1 else
+                f"Remove “{truncate(jobs[0].display_name, 60)}” from the list?")
+        text += "\n\nDownloaded files are kept on disk."
+        if running:
+            text += f"\n{len(running)} of them are downloading and will be cancelled."
+        if not messagebox.askyesno("Remove downloads", text, default="yes"):
             return
         for job in jobs:
             if job.status in RUNNING_STATUSES:
@@ -490,7 +713,6 @@ class MasterDownloadManagerApp:
         self._mark_structure()
 
     def _remove_when_stopped(self, job_id):
-        import time
         for _ in range(100):
             job = self.manager.get_job(job_id)
             if job is None or job.status not in RUNNING_STATUSES:
@@ -533,19 +755,33 @@ class MasterDownloadManagerApp:
         count = self.manager.retry_failed()
         self.toast("info", f"Retrying {count} failed download(s)." if count else "Nothing to retry.")
 
+    def _activate(self, job):
+        if job.status == STATUS_COMPLETED and job.result_path and os.path.isfile(job.result_path):
+            open_file(job.result_path, self.root)
+        else:
+            self.open_details(job.job_id)
+
+    def _copy(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text or "")
+
     # ======================================================== context menu === #
+    def _menu(self):
+        c = self.c
+        return tk.Menu(self.root, tearoff=0, bg=c["surface"], fg=c["text"], activebackground=c["surface_hover"],
+                       activeforeground=c["text"], bd=0, font=("Segoe UI", 10))
+
     def build_context_menu(self, jobs):
-        p = self.palette()
-        menu = tk.Menu(self.root, tearoff=0, bg=p["surface"], fg=p["text"], activebackground=p["surface_hover"],
-                       activeforeground=p["text"], bd=0)
+        menu = self._menu()
         job = jobs[0]
         single = len(jobs) == 1
         has_file = bool(job.result_path) and os.path.exists(job.result_path)
-        menu.add_command(label="Open file", command=lambda: open_file(job.result_path, self.root),
+        is_file = has_file and os.path.isfile(job.result_path)
+        menu.add_command(label="Open", command=lambda: open_file(job.result_path, self.root),
                          state="normal" if single and has_file else "disabled")
-        menu.add_command(label="Show in folder", command=lambda: open_folder(job.download_dir, job.result_path))
-        menu.add_command(label="Details…", command=lambda: self.open_details(job.job_id), state="normal" if single else "disabled")
-        menu.add_command(label="Copy link", command=lambda: self._copy("\n".join(j.url for j in jobs)))
+        menu.add_command(label="Open with…", command=lambda: self._open_with(job.result_path),
+                         state="normal" if single and is_file else "disabled")
+        menu.add_command(label="Open containing folder", command=lambda: open_folder(job.download_dir, job.result_path))
         menu.add_separator()
         statuses = {j.status for j in jobs}
         if statuses & set(RUNNING_STATUSES) or statuses & {STATUS_QUEUED, STATUS_RETRYING}:
@@ -556,28 +792,49 @@ class MasterDownloadManagerApp:
             menu.add_command(label="Cancel", command=lambda: self.act("cancel", jobs))
         if any(j.status in (STATUS_FAILED, STATUS_CANCELLED) and not j.from_history for j in jobs):
             menu.add_command(label="Retry", command=lambda: self.act("retry", jobs))
+        if any(not j.from_history and j.status not in RUNNING_STATUSES for j in jobs):
+            menu.add_command(label="Restart from zero", command=lambda: self._confirm_restart(jobs))
         menu.add_command(label="Download again…", command=lambda: self.open_add_dialog(job.url, analyze=True),
                          state="normal" if single else "disabled")
-        if statuses & {STATUS_QUEUED, STATUS_PAUSED}:
+        active = [j for j in jobs if j.status in ACTIVE_STATUSES and not j.from_history]
+        if active:
             menu.add_separator()
-            menu.add_command(label="Move to top", command=lambda: self.act("top", list(reversed(jobs))))
-            menu.add_command(label="Move up", command=lambda: self.act("up", jobs))
-            menu.add_command(label="Move down", command=lambda: self.act("down", list(reversed(jobs))))
-            menu.add_command(label="Move to bottom", command=lambda: self.act("bottom", jobs))
+            qmenu = self._menu()
+            for q in self.manager.queues.all():
+                qmenu.add_command(label=q.name, command=lambda qid=q.id: self._move_to_queue(active, qid))
+            qmenu.add_separator()
+            qmenu.add_command(label="New queue…", command=lambda: self.new_queue(move_jobs=active))
+            menu.add_cascade(label="Move to queue", menu=qmenu)
+            pmenu = self._menu()
+            for value in (PRIORITY_HIGH, PRIORITY_NORMAL, PRIORITY_LOW):
+                pmenu.add_command(label=PRIORITY_LABELS[value] + ("  ✓" if single and job.priority == value else ""),
+                                  command=lambda v=value: [self.manager.set_priority(j.job_id, v) for j in active])
+            menu.add_cascade(label="Priority", menu=pmenu)
+            menu.add_command(label="Speed limit…", command=lambda: self._ask_speed_limit(active))
+            menu.add_command(label="Schedule start…", command=lambda: self._ask_start_time(active))
+            if statuses & {STATUS_QUEUED, STATUS_PAUSED}:
+                order = self._menu()
+                order.add_command(label="Move to top", command=lambda: self.act("top", list(reversed(jobs))))
+                order.add_command(label="Move up", command=lambda: self.act("up", jobs))
+                order.add_command(label="Move down", command=lambda: self.act("down", list(reversed(jobs))))
+                order.add_command(label="Move to bottom", command=lambda: self.act("bottom", jobs))
+                menu.add_cascade(label="Order", menu=order)
+        menu.add_separator()
+        menu.add_command(label="Copy link", command=lambda: self._copy("\n".join(j.url for j in jobs)))
+        menu.add_command(label="Copy file path", state="normal" if any(j.result_path for j in jobs) else "disabled",
+                         command=lambda: self._copy("\n".join(j.result_path for j in jobs if j.result_path)))
+        menu.add_command(label="Properties…", command=lambda: self.open_details(job.job_id),
+                         state="normal" if single else "disabled")
+        if single and job.status == STATUS_FAILED and job.error_message:
+            menu.add_command(label="View error…", command=lambda: self.open_details(job.job_id))
         menu.add_separator()
         menu.add_command(label="Remove from list" + (" and history" if any(j.from_history for j in jobs) else ""),
                          command=lambda: self.remove_jobs(jobs))
-        if single and has_file and os.path.isfile(job.result_path) and job.status == STATUS_COMPLETED:
+        if single and is_file and job.status == STATUS_COMPLETED:
             menu.add_command(label="Delete file from disk…", command=lambda: self._delete_file(job))
         return menu
 
-    def _on_right_click(self, event):
-        iid = self.tree.identify_row(event.y)
-        if not iid:
-            return
-        if iid not in self.tree.selection():
-            self.tree.selection_set(iid)
-        jobs = self.selected_jobs()
+    def _on_context(self, event, jobs):
         if not jobs:
             return
         menu = self.build_context_menu(jobs)
@@ -586,51 +843,201 @@ class MasterDownloadManagerApp:
         finally:
             menu.grab_release()
 
-    def _on_double_click(self, event):
-        iid = self.tree.identify_row(event.y)
-        job = self._iid_job.get(iid)
-        if job is None:
+    def _open_with(self, path):
+        if not path or not os.path.isfile(path):
             return
-        if job.status == STATUS_COMPLETED and job.result_path and os.path.isfile(job.result_path):
-            open_file(job.result_path, self.root)
+        try:
+            import subprocess
+            subprocess.Popen(["rundll32.exe", "shell32.dll,OpenAs_RunDLL", os.path.normpath(path)])
+        except OSError as e:
+            messagebox.showerror("Open with", str(e))
+
+    def _confirm_restart(self, jobs):
+        targets = [j for j in jobs if not j.from_history and j.status not in RUNNING_STATUSES]
+        if targets and messagebox.askyesno("Restart", f"Discard the partial data of {len(targets)} download(s) "
+                                           "and download again from the beginning?", default="no"):
+            self.act("restart", targets)
+
+    def _move_to_queue(self, jobs, queue_id):
+        for j in jobs:
+            self.manager.move_to_queue(j.job_id, queue_id)
+        self._mark_structure()
+
+    def _ask_speed_limit(self, jobs):
+        current = (jobs[0].options or {}).get("speed_limit_kbps", 0)
+        dialog = ctk.CTkInputDialog(title="Speed limit", text=f"Limit for {len(jobs)} download(s) in KB/s "
+                                                              f"(0 = no limit). Current: {current or 'none'}")
+        value = dialog.get_input()
+        if value is None:
+            return
+        try:
+            kbps = int(str(value).strip() or 0)
+            if not 0 <= kbps <= 10_000_000:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Speed limit", "Enter a whole number of KB/s (0 = no limit).")
+            return
+        for j in jobs:
+            self.manager.set_speed_limit(j.job_id, kbps)
+        self.toast("info", f"Speed limit {'removed' if not kbps else f'set to {kbps} KB/s'}.")
+
+    def _ask_start_time(self, jobs):
+        dialog = ctk.CTkInputDialog(title="Schedule start",
+                                    text="Start at (HH:MM, 24-hour; the next time it comes round).\nLeave empty to "
+                                         "start as soon as possible.")
+        value = dialog.get_input()
+        if value is None:
+            return
+        value = value.strip()
+        start_at = None
+        if value:
+            try:
+                t = datetime.datetime.strptime(value, "%H:%M").time()
+            except ValueError:
+                messagebox.showerror("Schedule start", "Use HH:MM, e.g. 02:30.")
+                return
+            when = datetime.datetime.combine(datetime.date.today(), t)
+            if when <= datetime.datetime.now():
+                when += datetime.timedelta(days=1)
+            start_at = when.timestamp()
+        for j in jobs:
+            self.manager.set_start_at(j.job_id, start_at)
+        self._mark_structure()
+
+    # ============================================================== queues === #
+    def _current_queue(self):
+        if self.view.startswith("queue:"):
+            q = self.manager.queues.get(self.view.split(":", 1)[1])
+            if q:
+                return q
+        return self.manager.queues.get(MAIN_QUEUE_ID)
+
+    def start_current_queue(self):
+        q = self._current_queue()
+        self.manager.start_queue(q.id)
+        self.toast("info", f"Queue “{q.name}” started.")
+
+    def stop_current_queue(self):
+        q = self._current_queue()
+        self.manager.stop_queue(q.id)
+        self.toast("info", f"Queue “{q.name}” stopped — its downloads are paused.")
+
+    def open_queues(self, queue_id=None):
+        from .queues_window import QueuesWindow
+        existing = getattr(self, "_queues_window", None)
+        if existing is not None and existing.win.winfo_exists():
+            existing.win.lift()
+            if queue_id:
+                existing.select(queue_id)
+            return
+        self._queues_window = QueuesWindow(self, queue_id)
+
+    def new_queue(self, move_jobs=None):
+        dialog = ctk.CTkInputDialog(title="New queue", text="Name of the new queue:")
+        name = dialog.get_input()
+        if not name or not name.strip():
+            return None
+        try:
+            q = self.manager.queues.create(name.strip())
+        except ValueError as e:
+            messagebox.showerror("New queue", str(e))
+            return None
+        if move_jobs:
+            self._move_to_queue(move_jobs, q.id)
+        self.sidebar.rebuild()
+        self._mark_structure()
+        return q
+
+    def queue_context_menu(self, queue_id, event):
+        q = self.manager.queues.get(queue_id)
+        if q is None:
+            return
+        menu = self._menu()
+        if q.running:
+            menu.add_command(label="Stop queue", command=lambda: (self.manager.stop_queue(q.id), self._mark_structure()))
         else:
-            self.open_details(job.job_id)
+            menu.add_command(label="Start queue", command=lambda: (self.manager.start_queue(q.id), self._mark_structure()))
+        menu.add_command(label="Edit queue and schedule…", command=lambda: self.open_queues(q.id))
+        if not q.is_main:
+            menu.add_separator()
+            menu.add_command(label="Delete queue…", command=lambda: self._delete_queue(q))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
-    def _copy(self, text):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text or "")
+    def _delete_queue(self, q):
+        if messagebox.askyesno("Delete queue", f"Delete the queue “{q.name}”?\nIts downloads move to Main; "
+                                                "nothing is deleted from disk."):
+            self.manager.delete_queue(q.id)
+            if self.view == f"queue:{q.id}":
+                self.view = "all"
+            self.sidebar.rebuild()
+            self._mark_structure()
 
-    # ================================================================ misc === #
-    def _bind_keys(self):
-        self.root.bind("<Control-n>", lambda e: self.open_add_dialog())
-        self.root.bind("<Control-v>", lambda e: self.paste_and_add() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
-        self.tree.bind("<Delete>", lambda e: self.act_on_selection("remove"))
-        self.tree.bind("<Return>", lambda e: self.selected_jobs() and self.open_details(self.selected_jobs()[0].job_id))
-        self.root.bind("<Control-a>", lambda e: self.tree.selection_set(self.tree.get_children())
-                       if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
+    def _queue_complete(self, q):
+        action = q.on_complete
+        if action in ("none", None):
+            return
+        if action == "notify":
+            notifications.notify(APP_NAME, f"Queue “{q.name}” has finished.")
+            self.toast("success", f"Queue “{q.name}” finished.")
+            return
+        from .power_dialog import PowerCountdown
+        if self._power_dialog is not None and self._power_dialog.win.winfo_exists():
+            return
+        self._power_dialog = PowerCountdown(self, q.name, action, on_confirm=lambda: self._do_completion(action))
 
+    def _do_completion(self, action):
+        if action == "exit":
+            self.quit_app(force=True)
+        else:
+            self.manager.stop()  # partial downloads saved first
+            if not power.perform(action):
+                messagebox.showerror(APP_NAME, f"Windows refused the {power.ACTION_LABELS[action].lower()} request.")
+                self.manager.start()
+
+    # ========================================================== status bar === #
     def _build_status_bar(self):
-        bar = ctk.CTkFrame(self.root, height=28, corner_radius=0, fg_color=COLORS["sidebar"])
+        c, s = self.c, self.scale
+        bar = tk.Frame(self.root, bg=c["toolbar"], height=round(30 * s))
         bar.grid(row=2, column=0, columnspan=2, sticky="ew")
-        bar.grid_propagate(False)
+        bar.pack_propagate(False)
         self._statusbar = bar
-        ctk.CTkFrame(bar, height=1, corner_radius=0, fg_color=COLORS["border"]).place(relx=0, rely=0, relwidth=1.0, anchor="nw")
-        self.status_left = ctk.CTkLabel(bar, text="", text_color=COLORS["muted"], font=font(11))
-        self.status_left.pack(side="left", padx=14)
-        self.status_right = ctk.CTkLabel(bar, text="", text_color=COLORS["muted"], font=font(11))
-        self.status_right.pack(side="right", padx=14)
+        tk.Frame(bar, bg=c["border"], height=1).place(relx=0, rely=0, relwidth=1.0, anchor="nw")
+
+        def lab(side, **kw):
+            label = tk.Label(bar, bg=c["toolbar"], fg=c["muted"], font=("Segoe UI", 9), bd=0, **kw)
+            label.pack(side=side, padx=(round(14 * s), 0) if side == "left" else (0, round(14 * s)))
+            return label
+
+        self.status_down = lab("left")
+        self.status_up = lab("left")
+        self.status_counts = lab("left")
+        self.status_engines = lab("right")
+        self.status_limit = lab("right", cursor="hand2")
+        self.status_limit.bind("<Button-1>", lambda e: self.toggle_limited_mode())
         self._engine_status_text = None
+        self._refresh_status_bar()
 
     def _refresh_status_bar(self):
         jobs = self.manager.list_jobs()
-        downloading = [j for j in jobs if j.status in RUNNING_STATUSES]
+        running = [j for j in jobs if j.status in RUNNING_STATUSES]
         waiting = sum(1 for j in jobs if j.status in (STATUS_QUEUED, STATUS_RETRYING))
-        total_speed = sum(j.speed_bps or 0 for j in downloading)
-        parts = [f"{len(downloading)} downloading", f"{waiting} waiting",
-                 f"{sum(1 for j in jobs if j.status == STATUS_COMPLETED)} completed"]
-        if total_speed:
-            parts.append(f"↓ {_format_speed(total_speed)}")
-        self.status_left.configure(text="   ·   ".join(parts))
+        down = sum(j.speed_bps or 0 for j in running if j.status != STATUS_SEEDING)
+        up = sum(j.upload_bps or 0 for j in running if j.engine == "torrent")
+        g = icons.glyph
+        self.status_down.configure(text=f"{g('download')} {_format_speed(down) or '0 B/s'}",
+                                   fg=self.c["primary"] if down else self.c["muted"], font=icons.icon_font(9)
+                                   if not icons.family() else ("Segoe UI", 9))
+        self.status_up.configure(text=f"{g('upload')} {_format_speed(up) or '0 B/s'}")
+        self.status_counts.configure(text=f"{len(running)} active   ·   {waiting} queued   ·   "
+                                          f"{sum(1 for j in jobs if j.status == STATUS_COMPLETED):,} finished")
+        kbps, reason = bandwidth.manager.effective_kbps()
+        if kbps:
+            self.status_limit.configure(text=f"{g('speed')}  Limited to {kbps:,} KB/s ({reason})", fg=self.c["warning"])
+        else:
+            self.status_limit.configure(text=f"{g('speed')}  No speed limit", fg=self.c["faint"])
         if self._engine_status_text is None:
             status = tools.tool_status(self.settings.get("ffmpeg_path", ""))
             try:
@@ -640,8 +1047,26 @@ class MasterDownloadManagerApp:
                 torrent_ok = False
             api = f"Browser link :{self.settings.get('api_port')} ●" if self.api_thread else "Browser link off ○"
             self._engine_status_text = "   ".join([
-                api, "Media ●", f"FFmpeg {'●' if status['ffmpeg'] else '⚠'}", f"Torrent {'●' if torrent_ok else '⚠'}", "HTTP ●"])
-        self.status_right.configure(text=self._engine_status_text)
+                api, "Media ●", f"FFmpeg {'●' if status['ffmpeg'] else '⚠'}", f"Torrent {'●' if torrent_ok else '⚠'}",
+                "HTTP ●"])
+        self.status_engines.configure(text=self._engine_status_text)
+
+    def toggle_limited_mode(self):
+        bandwidth.manager.set_limited_mode(not bandwidth.manager.limited_mode)
+        on = bandwidth.manager.limited_mode
+        self.toast("info", f"Limited mode {'on' if on else 'off'}"
+                           + (f" — {self.settings.get('limited_mode_kbps', 512)} KB/s for everything." if on else "."))
+        self._refresh_status_bar()
+        if self.tray_icon is not None:
+            self.tray_icon.refresh()
+
+    # ================================================================ misc === #
+    def _bind_keys(self):
+        r = self.root
+        r.bind("<Control-n>", lambda e: self.open_add_dialog())
+        r.bind("<Control-v>", lambda e: self.paste_and_add() if not isinstance(e.widget, (tk.Entry, ctk.CTkEntry)) else None)
+        r.bind("<Control-f>", lambda e: self.search_entry.focus_set())
+        r.bind("<F5>", lambda e: self._mark_structure())
 
     def toast(self, kind, message):
         try:
@@ -661,6 +1086,36 @@ class MasterDownloadManagerApp:
                 notifications.notify(f"{APP_NAME} — download failed",
                                      f"{truncate(job.display_name, 50)}\n{job.error_message or ''}")
 
+    # ============================================================= theme === #
+    def palette(self):
+        return {k: color(k) for k in COLORS}
+
+    def apply_glass_window(self, win):
+        """Plain window background + the app icon (CTkToplevel would otherwise
+        replace the icon with CustomTkinter's default shortly after opening)."""
+        win.configure(fg_color=COLORS["background"])
+        from .backdrop import set_titlebar_theme
+        win.after(30, lambda: win.winfo_exists() and set_titlebar_theme(win, glass_theme.is_dark(), self.c["toolbar"],
+                                                                         self.c["text"]))
+        if os.path.isfile(APP_ICON_FILE):
+            def set_icon():
+                try:
+                    if win.winfo_exists():
+                        win.iconbitmap(APP_ICON_FILE)
+                except tk.TclError:
+                    pass
+            win.after(250, set_icon)
+
+    def set_appearance_mode(self, mode, accent=None):
+        if mode not in glass_theme.APPEARANCE_MODES:
+            return
+        accent = accent or self.settings.get("accent_color", "Indigo")
+        self.appearance_mode = mode
+        self.settings.update({"appearance_mode": mode, "accent_color": accent})
+        glass_theme.apply_palette(mode, accent)
+        glass_theme.install_ctk_theme()
+        self._rebuild_ui()
+
     # ============================================================= dialogs === #
     def open_add_dialog(self, prefill_url=None, analyze=False):
         self.restore_window()
@@ -671,6 +1126,10 @@ class MasterDownloadManagerApp:
             text = self.root.clipboard_get().strip()
         except tk.TclError:
             text = ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(lines) > 1:
+            self.open_add_dialog("\n".join(lines), analyze=True)
+            return
         self.open_add_dialog(text if classify(text) else None, analyze=bool(classify(text)))
 
     def add_torrent_file(self):
@@ -705,10 +1164,12 @@ class MasterDownloadManagerApp:
 
     def settings_changed(self):
         glass_theme.set_reduced_motion(self.settings.get("reduce_motion", False))
+        bandwidth.manager.refresh()
         self._engine_status_text = None
         self._refresh_status_bar()
         if self.settings.get("clipboard_monitor_enabled"):
             self.root.after(1500, self._poll_clipboard)
+        self.manager.wake()
 
     def open_request(self, url):
         """A second launch (e.g. double-clicked .torrent, magnet link) asked us to open something."""
@@ -716,14 +1177,31 @@ class MasterDownloadManagerApp:
         if url:
             self.open_add_dialog(url, analyze=True)
 
+    def _background_update_check(self):
+        from .. import updater
+
+        def work():
+            try:
+                available, manifest = updater.check(self.settings)
+            except Exception as e:  # noqa: BLE001 - background check is best-effort
+                log.info("Update check failed: %s", e)
+                return
+            self.settings.set("update_last_check", time.time())
+            if available:
+                self.call_in_main(self.toast, "info", f"Master Download Manager {manifest['version']} is available "
+                                                      "— Settings → Updates.")
+        threading.Thread(target=work, name="mdm-update-check", daemon=True).start()
+
     # ===================================================== tray / lifetime === #
     def _start_local_api(self):
         try:
-            self.api_thread, self.api_server = run_server(self.manager, self.settings,
-                                                          on_open_request=lambda url: self.call_in_main(self.open_request, url))
+            self.api_thread, self.api_server = run_server(
+                self.manager, self.settings, on_open_request=lambda url: self.call_in_main(self.open_request, url),
+                on_added=lambda job: self.call_in_main(self.toast, "info", f"From browser — {truncate(job.title, 40)}"))
         except Exception:  # noqa: BLE001
             log.exception("Failed to start the local API")
             self.api_thread = self.api_server = None
+        self._engine_status_text = None  # status bar shows the browser link state
 
     def _setup_tray(self):
         if not tray.tray_supported():
@@ -734,6 +1212,9 @@ class MasterDownloadManagerApp:
             on_resume_all=lambda: self.manager.resume_all(),
             on_settings=lambda: self.call_in_main(self.open_settings),
             on_exit=lambda: self.call_in_main(self.quit_app),
+            on_new=lambda: self.call_in_main(self.open_add_dialog),
+            on_toggle_limit=lambda: self.call_in_main(self.toggle_limited_mode),
+            is_limited=lambda: bandwidth.manager.limited_mode,
         )
         self.tray_icon.start()
 
@@ -754,13 +1235,14 @@ class MasterDownloadManagerApp:
         else:
             self.quit_app()
 
-    def quit_app(self):
+    def quit_app(self, force=False):
         active = [j for j in self.manager.list_jobs() if j.status in RUNNING_STATUSES]
-        if active and not messagebox.askyesno(
+        if active and not force and not messagebox.askyesno(
                 "Exit", f"{len(active)} download(s) are running. Exit anyway? They'll be paused and can be resumed next time."):
             return
         self._closing = True
         try:
+            self.scheduler.stop()
             self.manager.stop()
         except Exception:  # noqa: BLE001
             pass
@@ -768,6 +1250,10 @@ class MasterDownloadManagerApp:
             self.api_server.should_exit = True
         if self.tray_icon is not None:
             self.tray_icon.stop()
+        try:
+            self.history.close()
+        except Exception:  # noqa: BLE001
+            pass
         self.root.destroy()
 
     # ========================================================== clipboard === #
@@ -816,4 +1302,3 @@ class MasterDownloadManagerApp:
         glass_button(row, "Download…", go, variant="primary", width=110).pack(side="left", padx=6)
         glass_button(row, "Ignore", popup.destroy, width=100).pack(side="left", padx=6)
         popup.after(9000, lambda: popup.winfo_exists() and popup.destroy())
-        fade_in_toplevel(popup)

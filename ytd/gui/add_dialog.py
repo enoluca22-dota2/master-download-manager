@@ -17,12 +17,13 @@ import customtkinter as ctk
 from .. import tools
 from ..engine import resolve_download_dir
 from ..files import sanitize_filename
-from ..models import STATUS_QUEUED
+
 from ..providers import get_provider
 from ..providers.media import (
     LOSSY_BITRATES_KBPS, RESOLUTION_LABELS, _CUSTOM_FORMAT_RE, is_playlist_url, resolve_format_selection,
 )
-from ..router import detect_engine
+from ..providers.http import parse_checksum
+from ..router import classify, default_selection, detect_engine, url_path_ext
 from . import effects as glass_effects
 from .common import ENGINE_LABEL, human_duration, human_size, parse_timestamp, truncate
 from .theme import (
@@ -33,6 +34,15 @@ from .theme import (
 CHECK, UNCHECK = "☑", "☐"
 _AUDIO_LABELS = {"original": "Original (no conversion)", **{k: v[0] for k, v in tools.AUDIO_CODECS.items()}}
 _THUMB_EMBED_AUDIO = {"mp3", "m4a"}
+_CONN_CHOICES = ["Default"] + [str(n) for n in range(1, 17)]
+
+
+def split_links(text):
+    """Several links pasted at once (one per line or space-separated).
+    Returns the list when there is more than one recognisable link."""
+    tokens = [t.strip().strip('"<>') for t in (text or "").split()]
+    links = [t for t in tokens if classify(t)]
+    return links if len(links) > 1 else []
 
 
 def _compress_indices(indices):
@@ -140,6 +150,7 @@ class AddDialog:
         win.transient(app.root)
         app.apply_glass_window(win)
         self._token = 0
+        self._batch = []
         self.media = None
         self.engine = None
         self.save_dir_override = None
@@ -153,7 +164,7 @@ class AddDialog:
         top.pack(fill="x")
         row = ctk.CTkFrame(top, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=(14, 6))
-        self.url_var = tk.StringVar(value=prefill_url or "")
+        self.url_var = tk.StringVar(value=" ".join((prefill_url or "").split()))
         self.url_entry = glass_entry(row, textvariable=self.url_var, height=40,
                                      placeholder="Paste a video/playlist URL, file link, magnet link or .torrent path…")
         self.url_entry.pack(side="left", fill="x", expand=True)
@@ -189,6 +200,11 @@ class AddDialog:
         glass_button(frow, "Change…", self._browse_folder, width=80, height=32).pack(side="left")
         self.start_now_var = tk.BooleanVar(value=True)
         ctk.CTkCheckBox(frow, text="Start now", variable=self.start_now_var, font=font(12)).pack(side="left", padx=12)
+        self._queues = {q.name: q.id for q in self.manager.queues.all()}
+        self.queue_var = tk.StringVar(value=next(iter(self._queues)))
+        ctk.CTkLabel(frow, text="Queue", text_color=COLORS["muted"], font=font(12, "bold")).pack(side="left")
+        ctk.CTkOptionMenu(frow, values=list(self._queues), variable=self.queue_var, width=120, height=32,
+                          font=font(12)).pack(side="left", padx=(6, 0))
         self.download_btn = glass_primary_action_button(frow, "⬇  Download", self.submit, height=40, width=150)
         self.download_btn.pack(side="right")
         self.download_btn.configure(state="disabled")
@@ -200,6 +216,29 @@ class AddDialog:
         win.after(100, self.url_entry.focus_set)
         if prefill_url and analyze:
             win.after(150, self.analyze)
+        elif prefill_url and split_links(prefill_url):
+            win.after(150, self.analyze)
+
+    def _add(self, **kwargs):
+        """Queue one job in the chosen queue; 'Start now' unticked adds it
+        paused (rather than pausing it after it may already have started)."""
+        kwargs.setdefault("queue_id", self._queues.get(self.queue_var.get()))
+        kwargs.setdefault("start_paused", not self.start_now_var.get())
+        return self.manager.add_job(**kwargs)
+
+    def _duplicate_note(self, url):
+        """'Already in the list / downloaded on …' — a warning, never a block."""
+        active = [j for j in self.manager.list_jobs() if j.url == url and not j.from_history
+                  and j.status not in ("Completed", "Failed", "Cancelled")]
+        if active:
+            return f"Already in the list ({active[0].status.lower()})."
+        try:
+            done = self.app.history.find_by_url(url)
+        except Exception:  # noqa: BLE001
+            done = []
+        if done:
+            return f"Already downloaded on {done[0]['date']}."
+        return None
 
     # ------------------------------------------------------------ helpers -- #
     def _clear_body(self):
@@ -234,9 +273,10 @@ class AddDialog:
 
     def _paste(self):
         try:
-            self.url_var.set(self.win.clipboard_get().strip())
+            text = self.win.clipboard_get().strip()
         except tk.TclError:
             return
+        self.url_var.set(" ".join(text.split()))
         self.analyze()
 
     def _browse_torrent(self):
@@ -287,6 +327,11 @@ class AddDialog:
         if not url:
             self._set_status("Paste a link first.", "error")
             return
+        links = split_links(url)
+        if links:
+            self._show_batch(links)
+            return
+        self._batch = []
         self.url_var.set(url)
         self._token += 1
         token = self._token
@@ -350,7 +395,8 @@ class AddDialog:
         if token != self._token or not self.win.winfo_exists():
             return
         self.engine, self.media = engine, media
-        self._set_status(media.title, "ok")
+        note = self._duplicate_note(self.url_var.get().strip())
+        self._set_status(media.title + (f"   ⚠ {note}" if note else ""), "ok")
         self._clear_body()
         self._header(media, thumb)
         if engine == "torrent":
@@ -824,9 +870,38 @@ class AddDialog:
                 glass_entry(grid, textvariable=self.http_name, height=30, width=480).grid(row=r, column=1, sticky="w", padx=12)
             else:
                 ctk.CTkLabel(grid, text=value, font=font(12)).grid(row=r, column=1, sticky="w", padx=12)
+        opts = self._section("Options")
+        row = ctk.CTkFrame(opts, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        self.http_conn = tk.StringVar(value="Default")
+        ctk.CTkLabel(row, text="Connections", font=font(12, "bold"), text_color=COLORS["muted"], width=110,
+                     anchor="w").pack(side="left")
+        menu = ctk.CTkOptionMenu(row, values=_CONN_CHOICES, variable=self.http_conn, width=100)
+        menu.pack(side="left")
+        if not media.resumable:
+            menu.configure(state="disabled")
+        ctk.CTkLabel(row, text=f"Default: {self.settings.get('http_connections', 4)} — more connections help mostly "
+                               "when the server limits each one.", text_color=COLORS["faint"], font=font(11)).pack(
+            side="left", padx=10)
+        row = ctk.CTkFrame(opts, fg_color="transparent")
+        row.pack(fill="x", pady=(8, 2))
+        self.http_checksum = tk.StringVar()
+        ctk.CTkLabel(row, text="Checksum", font=font(12, "bold"), text_color=COLORS["muted"], width=110,
+                     anchor="w").pack(side="left")
+        glass_entry(row, textvariable=self.http_checksum, height=30, width=420,
+                    placeholder="optional — e.g. sha256:… from the download page").pack(side="left")
+        self.limit_var = tk.StringVar()
+        row = ctk.CTkFrame(opts, fg_color="transparent")
+        row.pack(fill="x", pady=(8, 2))
+        ctk.CTkLabel(row, text="Speed limit", font=font(12, "bold"), text_color=COLORS["muted"], width=110,
+                     anchor="w").pack(side="left")
+        glass_entry(row, textvariable=self.limit_var, height=30, width=100, placeholder="KB/s").pack(side="left")
 
     # -------------------------------------------------------------- submit -- #
     def submit(self):
+        if self._batch:
+            self._queue_batch()
+            return
         if self.media is None:
             return
         try:
@@ -842,13 +917,6 @@ class AddDialog:
         self._after_queue(jobs)
 
     def _after_queue(self, jobs):
-        if not self.start_now_var.get():
-            for job in jobs:
-                try:
-                    if job.status == STATUS_QUEUED:
-                        self.manager.pause(job.job_id)
-                except ValueError:
-                    pass
         self.app.toast("info", f"Added {len(jobs)} download{'s' if len(jobs) != 1 else ''}"
                        if len(jobs) != 1 else f"Added — {truncate(jobs[0].title, 40)}")
         if self.win.winfo_exists():
@@ -863,13 +931,24 @@ class AddDialog:
                 raise ValueError("Select at least one file.")
             key = "torrent-all" if len(picked) == len(self._t_files) else "torrent-files-" + ",".join(picked)
             label = "Entire torrent" if key == "torrent-all" else f"{len(picked)} of {len(self._t_files)} files"
-            return [self.manager.add_job(url=url, kind="torrent", quality_label=label, format_key=key,
+            return [self._add(url=url, kind="torrent", quality_label=label, format_key=key,
                                          download_dir=target, category="Torrent", engine="torrent", title=self.media.title)]
         if self.engine == "http":
             name = sanitize_filename(self.http_name.get())
             override = name if name != (self.media.filename or "") else None
-            return [self.manager.add_job(url=url, kind="file", quality_label="Direct file", format_key="file",
-                                         download_dir=target, engine="http", title=name, filename_override=override)]
+            options = self._common_options()
+            if self.http_conn.get() != "Default":
+                options["connections"] = int(self.http_conn.get())
+            checksum = self.http_checksum.get().strip()
+            if checksum:
+                try:
+                    algo, digest = parse_checksum(checksum)
+                except ValueError as e:
+                    raise ValueError(f"Checksum: {e}") from e
+                options["checksum"] = f"{algo}:{digest}"
+            return [self._add(url=url, kind="file", quality_label="Direct file", format_key="file",
+                              download_dir=target, engine="http", title=name, filename_override=override,
+                              options=options)]
         if self.media.is_playlist:
             return self._queue_playlist(target)
         return self._queue_single(url, target)
@@ -900,13 +979,13 @@ class AddDialog:
                 raise ValueError("Select at least one subtitle language.")
             for f in subs:
                 kind, label, key, _ = resolve_format_selection(f.format_id)
-                jobs.append(self.manager.add_job(url=url, kind=kind, quality_label=label, format_key=key,
+                jobs.append(self._add(url=url, kind=kind, quality_label=label, format_key=key,
                                                  download_dir=target, engine="media", title=f"{title} [{f.lang_code}]",
                                                  options={"subtitle_format": self.sub_format_var.get()}))
             return jobs
         if mode == "Thumbnail":
             kind, label, key, _ = resolve_format_selection("thumbnail")
-            return [self.manager.add_job(url=url, kind=kind, quality_label=label, format_key=key, download_dir=target,
+            return [self._add(url=url, kind=kind, quality_label=label, format_key=key, download_dir=target,
                                          engine="media", title=title, filename_override=filename)]
 
         subs = self._selected_subs()
@@ -939,7 +1018,7 @@ class AddDialog:
             else:
                 format_id = f"audio-{codec}-{kbps}" if kbps.isdigit() else f"audio-{codec}"
         kind, label, key, bitrate = resolve_format_selection(format_id)
-        return [self.manager.add_job(url=url, kind=kind, quality_label=label, format_key=key, download_dir=target,
+        return [self._add(url=url, kind=kind, quality_label=label, format_key=key, download_dir=target,
                                      audio_bitrate=bitrate, engine="media", title=title, filename_override=filename,
                                      options=options)]
 
@@ -955,7 +1034,7 @@ class AddDialog:
         if self.pl_single_task.get():
             items = _compress_indices(int(i) for i in picked) if len(picked) != self.pl_list.count() else None
             options = dict(base_options, **({"playlist_items": items} if items else {}))
-            return [self.manager.add_job(url=self.url_var.get().strip(), kind=kind, quality_label=label, format_key=key,
+            return [self._add(url=self.url_var.get().strip(), kind=kind, quality_label=label, format_key=key,
                                          is_playlist=True, download_dir=target if self.pl_subfolder.get() else target,
                                          audio_bitrate=bitrate, engine="media", title=playlist_title, options=options)]
 
@@ -971,7 +1050,7 @@ class AddDialog:
                     options = dict(base_options, playlist_title=playlist_title)
                     if number:
                         options["playlist_index"] = entry["index"]
-                    jobs.append(self.manager.add_job(url=entry["url"], kind=kind, quality_label=label, format_key=key,
+                    jobs.append(self._add(url=entry["url"], kind=kind, quality_label=label, format_key=key,
                                                      download_dir=folder, audio_bitrate=bitrate, engine="media",
                                                      title=entry["title"], options=options))
                     if n % 50 == 0:
@@ -982,3 +1061,99 @@ class AddDialog:
 
         threading.Thread(target=worker, name="mdm-queue-playlist", daemon=True).start()
         return None
+
+    # --------------------------------------------------------------- batch -- #
+    def _show_batch(self, links):
+        """Several links: list them with their engine, flag duplicates and
+        fetch sizes of direct files in the background (never invented)."""
+        self._token += 1
+        token = self._token
+        self.media, self.engine = None, None
+        self._clear_body()
+        self._set_badge("BATCH")
+        queued_urls = {j.url for j in self.manager.list_jobs() if not j.from_history
+                       and j.status not in ("Completed", "Failed", "Cancelled")}
+        seen, rows = set(), []
+        for link in links:
+            if link in seen:
+                continue
+            seen.add(link)
+            note = "already in the list" if link in queued_urls else None
+            if note is None:
+                try:
+                    hist = self.app.history.find_by_url(link)
+                except Exception:  # noqa: BLE001
+                    hist = []
+                note = f"downloaded {hist[0]['date']}" if hist else None
+            rows.append({"url": link, "engine": classify(link), "note": note})
+        dupes = sum(1 for r in rows if r["note"])
+        self._set_status(f"{len(rows)} links" + (f" — {dupes} already downloaded or queued (unticked)" if dupes else ""),
+                         "ok")
+        inner = self._section(f"{len(rows)} links — each is queued with your default quality")
+        self.batch_list = CheckList(inner, ("name", "engine", "size", "note"), ("Link", "Engine", "Size", "Note"),
+                                    (360, 70, 90, 170), height=min(14, max(4, len(rows))))
+        self.batch_list.frame.pack(fill="both", expand=True)
+        self._batch = rows
+        for i, r in enumerate(rows):
+            self.batch_list.add(str(i), (truncate(r["url"], 70), ENGINE_LABEL.get(r["engine"], r["engine"] or "?"),
+                                         "", r["note"] or ""))
+            if r["note"]:
+                self.batch_list._set(str(i), False)
+        tools_row = ctk.CTkFrame(inner, fg_color="transparent")
+        tools_row.pack(fill="x", pady=(6, 0))
+        glass_button(tools_row, "All", lambda: self.batch_list.set_all(True), width=60, height=28).pack(side="left")
+        glass_button(tools_row, "None", lambda: self.batch_list.set_all(False), width=60, height=28).pack(side="left", padx=6)
+        self.batch_total = ctk.CTkLabel(tools_row, text="", text_color=COLORS["muted"], font=font(11))
+        self.batch_total.pack(side="right")
+        self.download_btn.configure(state="normal")
+        self._update_dir_label()
+
+        def sizes():
+            from ..providers.http import probe_url
+            total, known = 0, 0
+            for i, r in enumerate(rows[:60]):
+                if token != self._token:
+                    return
+                if r["engine"] != "http" or url_path_ext(r["url"]) in ("", "html", "htm"):
+                    continue
+                try:
+                    size = probe_url(r["url"], self.settings).get("size")
+                except Exception:  # noqa: BLE001 - size is informational
+                    size = None
+                if size:
+                    total, known = total + size, known + 1
+                self.app.call_in_main(self._batch_size, token, i, size, total, known)
+
+        threading.Thread(target=sizes, name="mdm-batch-sizes", daemon=True).start()
+
+    def _batch_size(self, token, index, size, total, known):
+        if token != self._token or not self.win.winfo_exists():
+            return
+        tree = self.batch_list.tree
+        values = list(tree.item(str(index), "values"))
+        values[3] = human_size(size, "unknown")
+        tree.item(str(index), values=values)
+        self.batch_total.configure(text=f"≈ {human_size(total, '0 B')} for {known} file(s) with a known size")
+
+    def _queue_batch(self):
+        picked = [self._batch[int(i)] for i in self.batch_list.checked()]
+        if not picked:
+            messagebox.showwarning("Nothing selected", "Tick at least one link.", parent=self.win)
+            return
+        jobs, failed = [], []
+        for r in picked:
+            try:
+                engine = r["engine"]
+                format_id, category, options = default_selection(engine, self.settings)
+                from ..providers import resolve_format_selection as resolve_any
+                kind, label, key, bitrate = resolve_any(r["url"], format_id, engine=engine)
+                target = self.save_dir_override or resolve_download_dir(self.settings, kind, category)
+                jobs.append(self._add(url=r["url"], kind=kind, quality_label=label, format_key=key,
+                                      audio_bitrate=bitrate or "192", download_dir=target, category=category,
+                                      engine=engine, options=options))
+            except Exception as e:  # noqa: BLE001 - reported below
+                failed.append(f"{truncate(r['url'], 60)}: {e}")
+        if failed:
+            messagebox.showwarning("Some links weren't added", "\n".join(failed[:12]), parent=self.win)
+        if jobs:
+            self._after_queue(jobs)

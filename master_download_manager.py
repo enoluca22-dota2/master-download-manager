@@ -36,8 +36,14 @@ def _another_instance_running():
     global _mutex_handle
     if sys.platform != "win32":
         return False
+    name = _MUTEX_NAME
+    if os.environ.get("MDM_DATA_DIR"):
+        # A portable/test profile is a separate instance from the installed app
+        # (the installer's AppMutex check only cares about the default name).
+        import hashlib
+        name += "." + hashlib.sha1(os.path.abspath(os.environ["MDM_DATA_DIR"]).lower().encode()).hexdigest()[:12]
     kernel32 = ctypes.windll.kernel32
-    _mutex_handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+    _mutex_handle = kernel32.CreateMutexW(None, False, name)
     return kernel32.GetLastError() == _ERROR_ALREADY_EXISTS
 
 

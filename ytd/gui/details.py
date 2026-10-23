@@ -65,6 +65,9 @@ class DetailsWindow:
         self._canvas_palette = palette
         self.canvas = tk.Canvas(inner, height=64, bg=palette["surface_deep"], highlightthickness=0)
         self.canvas.pack(fill="x", pady=(10, 0))
+        # segment map of a multi-connection download: each bar is a byte range,
+        # filled as far as it has been downloaded
+        self.segments = tk.Canvas(inner, height=26, bg=palette["surface_deep"], highlightthickness=0)
 
         self._last_buttons_state = None
         self.refresh()
@@ -138,6 +141,25 @@ class DetailsWindow:
         c.create_line(*points, fill=p["accent"], width=2, smooth=True)
         c.create_text(6, 9, anchor="w", fill=p["muted"], text=f"Speed (peak {_format_speed(peak)})", font=("Segoe UI", 8))
 
+    def _draw_segments(self, job):
+        seg = job.segment_map if job.status in RUNNING_STATUSES else None
+        if not seg or not job.total_bytes:
+            if self.segments.winfo_ismapped():
+                self.segments.pack_forget()
+            return
+        if not self.segments.winfo_ismapped():
+            self.segments.pack(fill="x", pady=(8, 0))
+        c, p = self.segments, self._canvas_palette
+        c.delete("all")
+        w = max(c.winfo_width(), 400)
+        total = float(job.total_bytes)
+        for start, end, done in seg:
+            x0, x1 = start / total * w, (end + 1) / total * w
+            c.create_rectangle(x0, 6, x1, 20, fill=p["border"], width=0)
+            c.create_rectangle(x0, 6, x0 + (x1 - x0) * min(1.0, done / max(1, end - start + 1)), 20,
+                               fill=p["accent"], width=0)
+            c.create_line(x0, 4, x0, 22, fill=p["surface_deep"], width=2)
+
     def refresh(self):
         if not self.win.winfo_exists():
             self.app.details_windows.pop(self.job_id, None)
@@ -186,6 +208,16 @@ class DetailsWindow:
             lines.append(f"Files: {len(job.result_paths)}")
         if job.playlist_title:
             lines.append(f"Playlist: {job.playlist_title}" + (f" (item {job.playlist_index})" if job.playlist_index else ""))
+        if job.engine == "http" and job.connections:
+            lines.append(f"Connections: {job.connections} open")
+        q = self.app.manager.queues.get(job.queue_id)
+        if q is not None and not job.from_history:
+            prio = {1: "high", -1: "low"}.get(job.priority, "normal")
+            lines.append(f"Queue: {q.name}   Priority: {prio}"
+                         + (f"   Speed limit: {job.options.get('speed_limit_kbps')} KB/s"
+                            if (job.options or {}).get("speed_limit_kbps") else ""))
+        if (job.options or {}).get("checksum"):
+            lines.append(f"Checksum: {job.options['checksum']}")
         if job.engine == "torrent" and job.peers is not None:
             lines.append(f"Peers: {job.peers}   Seeds: {job.seeds}   Upload: {_format_speed(job.upload_bps) or '0 B/s'}")
         lines += [
@@ -195,5 +227,6 @@ class DetailsWindow:
         ]
         self.info_label.configure(text="\n".join(lines))
         self._draw_graph(job.speed_history)
+        self._draw_segments(job)
         delay = 500 if job.status in RUNNING_STATUSES or job.status in (STATUS_QUEUED, STATUS_RETRYING) else 2000
         self.win.after(delay, self.refresh)

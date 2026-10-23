@@ -16,8 +16,14 @@ Manifest format (JSON, published by whoever releases MDM):
       "notes": "What's new ..."
     }
 
-Nothing is downloaded or executed automatically. No update server is
-configured by default, so the app never contacts one unless the user sets it.
+Nothing is downloaded or executed automatically.
+
+Update sources (Settings -> Updates):
+    github    (default) the project's GitHub Releases: the latest release's
+              installer asset, verified against the SHA-256 listed in the
+              release's SHA256SUMS.txt asset. Only contacted when the user
+              clicks "Check for updates" or enabled the weekly check.
+    manifest  a custom manifest URL in the format above.
 """
 
 import hashlib
@@ -35,6 +41,9 @@ from .logging_setup import get_logger
 log = get_logger()
 
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+GITHUB_REPO = "enoluca22-dota2/master-download-manager"
+GITHUB_API = "https://api.github.com"
+_INSTALLER_RE = re.compile(r"^Master[ ._-]Download[ ._-]Manager[ ._-]Setup[ ._-][0-9][0-9A-Za-z.\-]*\.exe$", re.I)
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_INSTALLER_BYTES = 2 * 1024 ** 3
 
@@ -80,6 +89,75 @@ def check_for_update(manifest_url, current_version=__version__, timeout=15):
     manifest = validate_manifest(manifest)
     available = Version(manifest["version"]) > Version(current_version)
     return available, manifest
+
+
+def _get_json(url, timeout, limit=MAX_MANIFEST_BYTES * 8):
+    _require_secure(url, "update URL")
+    try:
+        with requests.get(url, timeout=timeout, stream=True,
+                          headers={"Accept": "application/vnd.github+json", "User-Agent": "MasterDownloadManager"}) as r:
+            r.raise_for_status()
+            raw = r.raw.read(limit + 1, decode_content=True)
+    except requests.RequestException as e:
+        raise UpdateError(f"Couldn't reach GitHub ({e.__class__.__name__}).") from e
+    if len(raw) > limit:
+        raise UpdateError("The update information is unreasonably large.")
+    try:
+        import json
+        return json.loads(raw.decode("utf-8"))
+    except ValueError as e:
+        raise UpdateError("GitHub returned something that isn't JSON.") from e
+
+
+def _get_text(url, timeout, limit=64 * 1024):
+    _require_secure(url, "checksum URL")
+    try:
+        with requests.get(url, timeout=timeout, stream=True, headers={"User-Agent": "MasterDownloadManager"}) as r:
+            r.raise_for_status()
+            raw = r.raw.read(limit + 1, decode_content=True)
+    except requests.RequestException as e:
+        raise UpdateError(f"Couldn't download the checksum list ({e.__class__.__name__}).") from e
+    if len(raw) > limit:
+        raise UpdateError("The checksum list is unreasonably large.")
+    return raw.decode("utf-8", "replace")
+
+
+def manifest_from_github_release(release, sums_text):
+    """Build a manifest from a GitHub release JSON + its SHA256SUMS.txt."""
+    if not isinstance(release, dict) or release.get("draft") or release.get("prerelease"):
+        raise UpdateError("No stable release found.")
+    version = str(release.get("tag_name") or "").lstrip("vV")
+    asset = next((a for a in release.get("assets") or []
+                  if isinstance(a, dict) and _INSTALLER_RE.match(str(a.get("name", "")))), None)
+    if asset is None:
+        raise UpdateError("The latest release has no Windows installer.")
+    sums = {}
+    for line in (sums_text or "").splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and _SHA256_RE.match(parts[0]):
+            sums[parts[1].lstrip("*").strip()] = parts[0].lower()
+    sha = sums.get(asset["name"])
+    if not sha:
+        raise UpdateError("The release's SHA256SUMS.txt doesn't list the installer; refusing it.")
+    return validate_manifest({"version": version, "url": asset.get("browser_download_url", ""), "sha256": sha,
+                              "size": asset.get("size"), "notes": release.get("body") or ""})
+
+
+def check_github(repo=GITHUB_REPO, current_version=__version__, timeout=15):
+    release = _get_json(f"{GITHUB_API}/repos/{repo}/releases/latest", timeout)
+    sums_asset = next((a for a in release.get("assets") or []
+                       if isinstance(a, dict) and a.get("name") == "SHA256SUMS.txt"), None) if isinstance(release, dict) else None
+    if sums_asset is None:
+        raise UpdateError("The latest release has no SHA256SUMS.txt; refusing to update without a checksum.")
+    manifest = manifest_from_github_release(release, _get_text(sums_asset.get("browser_download_url", ""), timeout))
+    return Version(manifest["version"]) > Version(current_version), manifest
+
+
+def check(settings, current_version=__version__):
+    """Check the configured source. Returns (update_available, manifest)."""
+    if (settings.get("update_source") or "github") == "manifest":
+        return check_for_update(settings.get("update_manifest_url", ""), current_version)
+    return check_github(current_version=current_version)
 
 
 def validate_manifest(manifest):

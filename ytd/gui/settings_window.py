@@ -12,16 +12,17 @@ from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 
-from .. import __version__, notifications, startup, tools, tray
+from .. import __version__, bandwidth, notifications, startup, tools, tray
 from ..config import (
-    APP_NAME, DATA_DIR, DEFAULT_API_PORT, INSTALL_DIR, LICENSES_DIR, LOG_DIR, NOTICES_FILE, RESOURCE_DIR,
+    APP_NAME, DATA_DIR, DEFAULT_SETTINGS, INSTALL_DIR, LICENSES_DIR, LOG_DIR, NOTICES_FILE, RESOURCE_DIR,
 )
 from ..providers.media import DEFAULT_TEMPLATE, RESOLUTION_LABELS, sanitize_template
 from .common import open_file, open_folder, truncate
-from .theme import COLORS, fade_in_toplevel, font, glass_button, glass_card, glass_entry, glass_segmented
+from .theme import ACCENTS, APPEARANCE_MODES, COLORS, fade_in_toplevel, font, glass_button, glass_card, glass_entry, glass_segmented
 
-SECTIONS = ("General", "Downloads", "Media", "Audio", "Subtitles", "Network", "Authentication", "Torrent",
-            "Browser Integration", "Advanced", "Updates", "About", "Licenses")
+SECTIONS = ("General", "Appearance", "Downloads", "Bandwidth", "Network", "Media", "Audio", "Subtitles", "Torrent",
+            "Queues & Scheduler", "Browser Integration", "Authentication", "History & Storage", "Advanced", "Updates",
+            "About", "Licenses")
 COOKIE_BROWSERS = ("firefox", "chrome", "edge", "brave", "opera", "vivaldi", "chromium")
 _PROXY_SCHEMES = ("http://", "https://", "socks4://", "socks4a://", "socks5://", "socks5h://")
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -78,7 +79,7 @@ class SettingsWindow:
         self.frames = {}
         for name in SECTIONS:
             frame = ctk.CTkFrame(self.page, fg_color="transparent")
-            getattr(self, "_build_" + name.lower().replace(" ", "_"))(frame)
+            getattr(self, "_build_" + name.lower().replace(" & ", "_").replace(" ", "_"))(frame)
             self.frames[name] = frame
         self.show(section if section in SECTIONS else "General")
         fade_in_toplevel(win)
@@ -147,10 +148,6 @@ class SettingsWindow:
     # ------------------------------------------------------------- sections -- #
     def _build_general(self, f):
         b = self._card(f, "General")
-        appearance = glass_segmented(b, ["Dark", "Light"], command=self.app.set_appearance_mode)
-        appearance.set(self.app.appearance_mode)
-        ctk.CTkLabel(b, text="Appearance", font=font(12)).grid(row=0, column=0, sticky="w", padx=(0, 12), pady=4)
-        appearance.grid(row=0, column=1, sticky="w")
         self._bool(b, "minimize_to_tray", "Closing the window keeps the app running in the system tray", 2, True,
                    state="normal" if tray.tray_supported() else "disabled")
         self._bool(b, "notifications_enabled", "Show Windows notifications when downloads finish or fail", 3, True,
@@ -159,6 +156,122 @@ class SettingsWindow:
         self.start_with_windows = tk.BooleanVar(value=startup.is_enabled())
         ctk.CTkCheckBox(b, text=f"Start {APP_NAME} with Windows (minimized)", variable=self.start_with_windows,
                         font=font(12)).grid(row=5, column=0, columnspan=3, sticky="w", pady=3)
+        b = self._card(f, "Reset", "Put every setting back to its default. Your downloads, history, queues and the "
+                       "browser extension pairing (security token) are kept.")
+        glass_button(b, "Reset all settings…", self._reset_settings, width=170, height=30).grid(row=0, column=0, sticky="w")
+
+    def _reset_settings(self):
+        if not messagebox.askyesno("Reset settings", "Reset all settings to their defaults?\n\nDownloads, history, "
+                                   "queues and the browser extension pairing are not affected.", parent=self.win):
+            return
+        keep = {k: self.s.get(k) for k in ("api_token", "api_port")}
+        defaults = dict(DEFAULT_SETTINGS)
+        defaults.update(keep)
+        self.s.update(defaults)
+        self.app.settings_changed()
+        self.win.destroy()
+        self.app.set_appearance_mode(defaults["appearance_mode"], defaults["accent_color"])
+        self.app.toast("success", "Settings reset to defaults.")
+
+    def _build_appearance(self, f):
+        b = self._card(f, "Theme", "Changes apply immediately. Black is a true-black dark theme for OLED screens; "
+                       "System follows Windows' light/dark setting.")
+        ctk.CTkLabel(b, text="Mode", font=font(12)).grid(row=0, column=0, sticky="w", padx=(0, 12), pady=4)
+        self.mode_seg = glass_segmented(b, list(APPEARANCE_MODES), command=lambda m: self._apply_theme(mode=m))
+        self.mode_seg.set(self.app.appearance_mode)
+        self.mode_seg.grid(row=0, column=1, sticky="w", pady=4)
+        ctk.CTkLabel(b, text="Accent colour", font=font(12)).grid(row=1, column=0, sticky="w", padx=(0, 12), pady=4)
+        self.accent_var = tk.StringVar(value=self.s.get("accent_color", "Indigo"))
+        ctk.CTkOptionMenu(b, values=list(ACCENTS), variable=self.accent_var, width=160,
+                          command=lambda a: self._apply_theme(accent=a)).grid(row=1, column=1, sticky="w", pady=4)
+        self._bool(b, "mica_backdrop", "Mica title bar (Windows 11)", 2)
+
+    def _apply_theme(self, mode=None, accent=None):
+        self.app.set_appearance_mode(mode or self.app.appearance_mode, accent or self.accent_var.get())
+        self.app.call_in_main(self.app.open_settings, "Appearance")
+        self.win.destroy()
+
+    def _build_bandwidth(self, f):
+        kbps, reason = bandwidth.manager.effective_kbps()
+        b = self._card(f, "Speed limits", "The global limit is shared fairly by all downloads at once. The tray's "
+                       "“Limit download speed” switches Limited mode on and off; scheduled speed profiles can lower "
+                       "the cap at certain times. The lowest active limit wins." +
+                       (f"  Right now: {kbps:,} KB/s ({reason})." if kbps else "  Right now: no limit."))
+        self._text(b, "global_speed_limit_kbps", "Global limit (KB/s, 0 = unlimited)", 0, width=100)
+        self._text(b, "limited_mode_kbps", "Limited mode (KB/s)", 1, width=100)
+        self._text(b, "speed_limit_kbps", "Default limit per download (KB/s, 0 = unlimited)", 2, width=100)
+        glass_button(b, "Speed profiles…", lambda: self.app.open_queues() or self._open_profiles(), width=140,
+                     height=30).grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ctk.CTkLabel(b, text="Torrent upload/download limits: Torrent section. Media sites (yt-dlp) and torrents get "
+                     "an equal share of the global limit when it is set.", font=font(11), text_color=COLORS["muted"],
+                     wraplength=600, justify="left").grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+    def _open_profiles(self):
+        w = getattr(self.app, "_queues_window", None)
+        if w is not None and w.win.winfo_exists():
+            w.page.set("Speed profiles")
+            w._show_page()
+
+    def _build_queues_scheduler(self, f):
+        queues = self.app.manager.queues.all()
+        b = self._card(f, "Queues", "The Main queue always runs — downloads start as soon as a slot is free. Other "
+                       "queues run when you start them or at their scheduled time, each with its own limits and an "
+                       "optional action when it finishes (notify, exit, sleep, shut down — always after a countdown).")
+        for i, q in enumerate(queues[:8]):
+            ctk.CTkLabel(b, text=f"{'●' if q.running else '○'}  {q.name}", font=font(12),
+                         text_color=COLORS["success"] if q.running else COLORS["muted"]).grid(row=i, column=0, sticky="w")
+        glass_button(b, "Open Queues & Scheduler…", self.app.open_queues, width=200, height=30).grid(
+            row=len(queues[:8]), column=0, sticky="w", pady=(10, 0))
+
+    def _build_history_storage(self, f):
+        count = self.app.history.count()
+        b = self._card(f, "Download history", f"{count:,} entries. Removing history never deletes downloaded files.")
+        glass_button(b, "Export…", self._export_history, width=110, height=30).grid(row=0, column=0, sticky="w")
+        glass_button(b, "Import…", self._import_history, width=110, height=30).grid(row=0, column=1, sticky="w", padx=8)
+        glass_button(b, "Clear history…", self._clear_history, variant="ghost", width=130, height=30).grid(
+            row=0, column=2, sticky="w")
+        b = self._card(f, "Privacy", "Master Download Manager only contacts the sites you download from. The browser "
+                       "extension talks to it over 127.0.0.1 with a security token; it never sends cookies or browsing "
+                       "history. Checking for updates contacts GitHub only when you ask (or weekly, if you turn that "
+                       "on in Updates).")
+        ctk.CTkLabel(b, text=f"Your data folder: {DATA_DIR}", font=font(11), text_color=COLORS["muted"]).grid(
+            row=0, column=0, sticky="w")
+
+    def _export_history(self):
+        path = filedialog.asksaveasfilename(parent=self.win, defaultextension=".json", initialfile="mdm-history.json",
+                                            filetypes=[("JSON", "*.json"), ("CSV (spreadsheets)", "*.csv")])
+        if not path:
+            return
+        try:
+            n = self.app.history.export(path)
+        except (OSError, ValueError) as e:
+            messagebox.showerror("Export history", str(e), parent=self.win)
+            return
+        self.footer_note.configure(text=f"Exported {n:,} entries.", text_color=COLORS["success"])
+
+    def _import_history(self):
+        path = filedialog.askopenfilename(parent=self.win, filetypes=[("History export", "*.json *.csv")])
+        if not path:
+            return
+        try:
+            n = self.app.history.import_file(path)
+        except (OSError, ValueError) as e:
+            messagebox.showerror("Import history", str(e), parent=self.win)
+            return
+        self.footer_note.configure(text=f"Imported {n:,} new entries — restart to see them in the list.",
+                                   text_color=COLORS["success"])
+
+    def _clear_history(self):
+        if messagebox.askyesno("Clear history", "Remove every entry from the download history?\n\nDownloaded files "
+                               "stay on your disk. You can't undo this (export first if unsure).", parent=self.win,
+                               icon="warning", default="no"):
+            self.app.history.clear()
+            for job in [j for j in self.app.manager.list_jobs() if j.from_history]:
+                try:
+                    self.app.manager.remove_job(job.job_id)
+                except (KeyError, ValueError):
+                    pass
+            self.footer_note.configure(text="History cleared.", text_color=COLORS["success"])
 
     def _build_downloads(self, f):
         b = self._card(f, "Folders")
@@ -221,8 +334,8 @@ class SettingsWindow:
         self._bool(b, "subtitle_embed", "Embed subtitles into the video file (MP4/MKV)", 3)
 
     def _build_network(self, f):
-        b = self._card(f, "Speed and connections")
-        self._text(b, "speed_limit_kbps", "Speed limit per download (KB/s, 0 = unlimited)", 0, width=100)
+        b = self._card(f, "Connections", "More connections per file help mostly when a server limits the speed of "
+                       "each connection; idle connections automatically take over the slowest part of the file.")
         self._choice(b, "http_connections", "Connections per direct download", list(range(1, 17)), 1, width=90,
                      labels=[str(i) for i in range(1, 17)])
         self._choice(b, "concurrent_fragments", "Parallel fragments for streaming media", list(range(1, 17)), 2,
@@ -277,6 +390,14 @@ class SettingsWindow:
         self.conn_label = ctk.CTkLabel(b, text="", font=font(12), text_color=COLORS["muted"])
         self.conn_label.grid(row=3, column=1, sticky="w", pady=(8, 0))
         glass_button(b, "Test connection", self._test_connection, width=140, height=30).grid(row=3, column=0, sticky="w", pady=(8, 0))
+        b = self._card(f, "Capture browser downloads", "When on, the extension hands file downloads that match these "
+                       "types to MDM instead of the browser's own downloader. Off by default. If MDM isn't running, "
+                       "the browser downloads the file normally.")
+        self._bool(b, "browser_capture_enabled", "Let the extension send matching browser downloads to MDM", 0)
+        self._text(b, "browser_capture_types", "File types (space-separated)", 1, width=420)
+        self._text(b, "browser_capture_min_kb", "Only files larger than (KB)", 2, width=100)
+        self._text(b, "browser_capture_blacklist", "Never capture from (sites, space-separated)", 3, width=420,
+                   placeholder="e.g. mybank.com intranet.local")
         b = self._card(f, "Install the extension",
                        "Chrome / Edge / Brave: open chrome://extensions (or edge://extensions), turn on Developer "
                        "mode, click “Load unpacked” and choose the Chrome extension folder. Firefox: open "
@@ -312,15 +433,18 @@ class SettingsWindow:
         glass_button(b, "Open data folder", lambda: open_folder(DATA_DIR), width=150, height=30).grid(row=0, column=1, sticky="w", padx=8)
 
     def _build_updates(self, f):
-        b = self._card(f, "Updates", "Master Download Manager never updates itself silently. If you publish an update "
-                       "manifest, enter its https:// address; checking is always manual and every installer is "
-                       "verified (size + SHA-256) before you can run it.")
-        self._text(b, "update_manifest_url", "Update manifest URL", 0, width=420, placeholder="(not configured)")
+        b = self._card(f, "Updates", "Master Download Manager never updates itself silently. It checks the project's "
+                       "GitHub releases (or your own manifest), and every installer is verified (size + SHA-256 from "
+                       "the release's SHA256SUMS.txt) before you can run it. Your settings and downloads are kept.")
+        self._choice(b, "update_source", "Source", ["github", "manifest"], 0, width=220,
+                     labels=["GitHub releases", "Custom manifest URL"])
+        self._text(b, "update_manifest_url", "Manifest URL", 2, width=420, placeholder="(only for a custom manifest)")
+        self._bool(b, "update_check_on_start", "Check once a week when the app starts", 3)
         self.update_label = ctk.CTkLabel(b, text=f"Installed version: {__version__}", font=font(12),
                                          text_color=COLORS["muted"], wraplength=560, justify="left")
-        self.update_label.grid(row=1, column=1, sticky="w", pady=(8, 0))
+        self.update_label.grid(row=4, column=1, sticky="w", pady=(8, 0))
         self.update_btn = glass_button(b, "Check for updates", self._check_updates, width=150, height=30)
-        self.update_btn.grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.update_btn.grid(row=4, column=0, sticky="w", pady=(8, 0))
 
     def _build_about(self, f):
         b = self._card(f, APP_NAME)
@@ -408,13 +532,14 @@ class SettingsWindow:
 
     def _check_updates(self):
         from .. import updater
+        source = self._value("update_source")
         url = self.vars["update_manifest_url"].get().strip()
         self.update_btn.configure(state="disabled")
         self.update_label.configure(text="Checking…", text_color=COLORS["muted"])
 
         def worker():
             try:
-                available, manifest = updater.check_for_update(url)
+                available, manifest = updater.check({"update_source": source, "update_manifest_url": url})
                 self.app.call_in_main(self._update_result, available, manifest, None)
             except updater.UpdateError as e:
                 self.app.call_in_main(self._update_result, False, None, str(e))
@@ -493,11 +618,13 @@ class SettingsWindow:
 
         for key in ("minimize_to_tray", "notifications_enabled", "clipboard_monitor_enabled",
                     "restore_queue_on_start", "prefer_h264", "embed_metadata", "embed_chapters", "embed_thumbnail",
-                    "subtitle_include_auto", "subtitle_embed", "api_enabled"):
+                    "subtitle_include_auto", "subtitle_embed", "api_enabled", "mica_backdrop",
+                    "browser_capture_enabled", "update_check_on_start"):
             updates[key] = bool(self._value(key))
         for key in ("default_mode", "default_quality", "default_container", "default_audio_format",
                     "default_audio_quality", "subtitle_format", "cookies_mode", "cookies_browser",
-                    "max_concurrent_downloads", "max_retries", "http_connections", "concurrent_fragments"):
+                    "max_concurrent_downloads", "max_retries", "http_connections", "concurrent_fragments",
+                    "update_source"):
             updates[key] = self._value(key)
         for key in ("download_dir", "video_dir", "audio_dir", "torrent_dir"):
             value = self._value(key).strip()
@@ -513,6 +640,14 @@ class SettingsWindow:
             errors.append("Subtitle languages: use codes like en, de, pt-BR separated by commas.")
         updates["subtitle_languages"] = ", ".join(langs)
         as_int("speed_limit_kbps", 0, 10_000_000, "Speed limit")
+        as_int("global_speed_limit_kbps", 0, 10_000_000, "Global limit")
+        as_int("limited_mode_kbps", 1, 10_000_000, "Limited mode")
+        as_int("browser_capture_min_kb", 0, 10_000_000, "Capture minimum size")
+        types = [t.lower().lstrip(".") for t in self._value("browser_capture_types").split()]
+        if any(not t.isalnum() or len(t) > 12 for t in types):
+            errors.append("Capture file types: extensions like zip exe iso separated by spaces.")
+        updates["browser_capture_types"] = " ".join(dict.fromkeys(types))
+        updates["browser_capture_blacklist"] = " ".join(self._value("browser_capture_blacklist").split())
         as_int("download_timeout", 5, 600, "Network timeout")
         as_int("torrent_max_connections", 10, 5000, "Maximum peer connections")
         as_int("torrent_download_limit_kbps", 0, 10_000_000, "Torrent download limit")
@@ -541,6 +676,8 @@ class SettingsWindow:
         update_url = self._value("update_manifest_url").strip()
         if update_url and not update_url.lower().startswith("https://"):
             errors.append("Update manifest URL must start with https://.")
+        if updates.get("update_source") == "manifest" and not update_url:
+            errors.append("Updates: enter the manifest URL, or choose GitHub releases.")
         updates["update_manifest_url"] = update_url
 
         if errors:
@@ -550,6 +687,7 @@ class SettingsWindow:
         restart_needed = (updates["api_port"] != self.s.get("api_port") or updates["api_enabled"] != self.s.get("api_enabled")
                           or updates["torrent_listen_port"] != self.s.get("torrent_listen_port"))
         updates["appearance_mode"] = self.app.appearance_mode
+        updates["accent_color"] = self.accent_var.get()
         self.s.update(updates)
         for folder in (updates["download_dir"],):
             try:

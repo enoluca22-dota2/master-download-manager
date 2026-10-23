@@ -40,20 +40,30 @@ class TrayIcon:
     so callers must marshal back to their own thread (e.g. Tk's root.after)."""
 
     def __init__(self, on_open=None, on_pause_all=None, on_resume_all=None,
-                 on_settings=None, on_exit=None):
+                 on_settings=None, on_exit=None, on_new=None, on_toggle_limit=None, is_limited=None):
         self._icon = None
         self._thread = None
         if not _available:
             return
 
-        menu = pystray.Menu(
-            pystray.MenuItem(f"Open {APP_NAME}", self._wrap(on_open), default=True),
+        items = [pystray.MenuItem(f"Open {APP_NAME}", self._wrap(on_open), default=True)]
+        if on_new:
+            items.append(pystray.MenuItem("New Download…", self._wrap(on_new)))
+        items += [
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Pause All", self._wrap(on_pause_all)),
             pystray.MenuItem("Resume All", self._wrap(on_resume_all)),
+        ]
+        if on_toggle_limit:
+            # checkmark shows whether "limited mode" (a reduced speed cap) is on
+            items.append(pystray.MenuItem("Limit download speed", self._wrap(on_toggle_limit),
+                                          checked=lambda item: bool(is_limited and is_limited())))
+        items += [
             pystray.MenuItem("Settings", self._wrap(on_settings)),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", self._wrap(on_exit)),
-        )
+        ]
+        menu = pystray.Menu(*items)
         self._icon = pystray.Icon("master-download-manager", _make_icon_image(), APP_NAME, menu)
 
     @staticmethod
@@ -71,6 +81,13 @@ class TrayIcon:
             return
         self._thread = threading.Thread(target=self._icon.run, daemon=True)
         self._thread.start()
+
+    def refresh(self):
+        if self._icon is not None:
+            try:
+                self._icon.update_menu()
+            except Exception:
+                pass
 
     def notify(self, title, message):
         if self._icon is not None:

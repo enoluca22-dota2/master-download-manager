@@ -82,7 +82,86 @@ _LIGHT = {
     "nebula_indigo": "#FFFFFF", "nebula_violet": "#FFFFFF", "nebula_magenta": "#FFFFFF",
 }
 
+_DARK_BASE, _LIGHT_BASE = dict(_DARK), dict(_LIGHT)
+
+# True-black variant of the dark palette for OLED screens.
+_BLACK_OVERRIDES = {
+    "bg_top": "#000000", "bg_mid": "#000000", "bg_bottom": "#000000", "background": "#000000",
+    "sidebar": "#000000", "surface_raised": "#0D0D0D", "surface": "#080808", "surface_hover": "#1A1A1A",
+    "surface_deep": "#040404", "border": "#1F1F1F", "border_soft": "#141414", "selected": "#262626",
+    "nebula_indigo": "#000000", "nebula_violet": "#000000", "nebula_magenta": "#000000",
+}
+
+# Accent colours: (dark-mode value, dark hover, light-mode value, light hover).
+# Used for primary buttons, progress bars and the selection indicator.
+# "Monochrome" is the MDM 3.0 look (white/black primaries).
+ACCENTS = {
+    "Indigo": ("#7364E8", "#8577F0", "#5443D1", "#6655DD"),
+    "Blue": ("#3D7FE6", "#5591EE", "#1F63D0", "#3A77DB"),
+    "Teal": ("#1E9E86", "#27B297", "#0E7D69", "#139078"),
+    "Rose": ("#D9487A", "#E35F8C", "#B8285C", "#C93D70"),
+    "Monochrome": None,
+}
+APPEARANCE_MODES = ("Dark", "Light", "Black", "System")
+
 COLORS = {name: (_LIGHT[name], _DARK[name]) for name in _DARK}
+_CURRENT = {"mode": "Dark", "accent": "Indigo"}
+
+
+def resolve_mode(mode):
+    """'System' follows Windows' app theme; 'Black' is a dark variant."""
+    if mode == "System":
+        try:
+            import darkdetect
+            return "Dark" if (darkdetect.theme() or "Dark") == "Dark" else "Light"
+        except Exception:  # noqa: BLE001
+            return "Dark"
+    return mode if mode in ("Dark", "Light", "Black") else "Dark"
+
+
+def apply_palette(mode="Dark", accent="Indigo"):
+    """Rewrite COLORS for an appearance mode + accent. Widgets read COLORS when
+    they are created, so the caller rebuilds its windows afterwards."""
+    resolved = resolve_mode(mode)
+    _DARK.clear()
+    _DARK.update(_DARK_BASE)
+    _LIGHT.clear()
+    _LIGHT.update(_LIGHT_BASE)
+    if resolved == "Black":
+        _DARK.update(_BLACK_OVERRIDES)
+    colors = ACCENTS.get(accent)
+    if colors:
+        dark, dark_hover, light, light_hover = colors
+        for key in ("primary", "violet", "cyan", "accent"):
+            _DARK[key], _LIGHT[key] = dark, light
+        for key in ("primary_hover", "violet_hover"):
+            _DARK[key], _LIGHT[key] = dark_hover, light_hover
+        _DARK["primary_pressed"] = _DARK["primary_deep"] = dark
+        _LIGHT["primary_pressed"] = _LIGHT["primary_deep"] = light
+        _DARK["on_primary"] = _LIGHT["on_primary"] = "#FFFFFF"
+    for name in _DARK:
+        COLORS[name] = (_LIGHT[name], _DARK[name])
+    _CURRENT.update(mode=mode, accent=accent if accent in ACCENTS else "Indigo")
+    ctk.set_appearance_mode("light" if resolved == "Light" else "dark")
+    return resolved
+
+
+def is_dark():
+    return ctk.get_appearance_mode().lower() == "dark"
+
+
+def color(key):
+    """A COLORS entry resolved to one hex value for the current mode (for
+    plain Tk / Canvas drawing, which can't take CustomTkinter's pairs)."""
+    light, dark = COLORS[key]
+    return dark if is_dark() else light
+
+
+def mix(hex_a, hex_b, t):
+    """Blend two #RRGGBB colours (t=0 -> a, t=1 -> b)."""
+    a = [int(hex_a[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(hex_b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
 
 RADIUS = {"xs": 4, "sm": 6, "md": 8, "lg": 10, "xl": 12}
 SPACING = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24}
@@ -174,7 +253,9 @@ def glass_card(parent, *, radius="lg", elevated=False, highlight=True, **overrid
     return ctk.CTkFrame(parent, **kwargs)
 
 
-_BUTTON_VARIANTS = {
+def _button_variants():
+    # built per call: COLORS changes when the theme/accent changes
+    return {
     "primary": dict(fg_color=COLORS["primary"], hover_color=COLORS["primary_hover"], text_color=COLORS["on_primary"],
                     border_width=0),
     "secondary": dict(fg_color=COLORS["surface_raised"], hover_color=COLORS["surface_hover"], text_color=COLORS["text"],
@@ -183,7 +264,7 @@ _BUTTON_VARIANTS = {
                    border_width=0),
     "ghost": dict(fg_color="transparent", hover_color=COLORS["surface_hover"], text_color=COLORS["muted"],
                   border_width=0),
-}
+    }
 
 
 def glass_button(parent, text, command=None, *, variant="secondary", height=36, width=0,
@@ -191,7 +272,7 @@ def glass_button(parent, text, command=None, *, variant="secondary", height=36, 
     kwargs = dict(
         corner_radius=RADIUS[radius] if isinstance(radius, str) else radius,
         height=height, width=width, font=font(size, "normal" if variant == "ghost" else weight),
-        text_color_disabled=COLORS["faint"], **_BUTTON_VARIANTS[variant],
+        text_color_disabled=COLORS["faint"], **_button_variants()[variant],
     )
     kwargs.update(overrides)
     return ctk.CTkButton(parent, text=text, command=command, **kwargs)

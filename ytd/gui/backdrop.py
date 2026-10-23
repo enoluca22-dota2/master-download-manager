@@ -84,6 +84,37 @@ def enable_glass_transparency(tk_root, key=TRANSPARENT_KEY):
         return False
 
 
+def _colorref(hex_color):
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return b << 16 | g << 8 | r
+
+
+def set_titlebar_theme(tk_window, dark, caption=None, text=None):
+    """Dark/light title bar matching the app theme (Windows 10 2004+/11).
+    On Windows 11 the caption can also take the toolbar's colour, so the
+    window reads as one surface even when Windows paints title bars with the
+    accent colour. Forces a frame redraw so the change is visible immediately."""
+    if sys.platform != "win32":
+        return False
+    hwnd = get_hwnd(tk_window)
+    if not hwnd:
+        return False
+    try:
+        import ctypes
+        value = ctypes.c_int(1 if dark else 0)
+        dwm = ctypes.windll.dwmapi
+        dwm.DwmSetWindowAttribute(hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
+        for attr, color in ((35, caption), (36, text)):  # DWMWA_CAPTION_COLOR / DWMWA_TEXT_COLOR (Win11; ignored before)
+            if color:
+                ref = ctypes.c_uint32(_colorref(color))
+                dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(ref), ctypes.sizeof(ref))
+        # SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0004 | 0x0010 | 0x0020)
+        return True
+    except Exception:
+        return False
+
+
 def apply_glass_backdrop(tk_root, mica=True, dark=True, rounded_corners=True):
     """Applies a real DWM-composited Mica (or Acrylic) backdrop plus rounded
     corners and immersive dark titlebar to a Tk window. Safe to call on any

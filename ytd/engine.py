@@ -354,6 +354,20 @@ class DownloadManager:
         if job:
             self._emit("reordered", job)
 
+    def move_before(self, job_ids, before_job_id=None):
+        """Drag-and-drop: move these jobs (keeping their relative order) to
+        just before `before_job_id`, or to the end when it's None."""
+        ids = set(job_ids)
+        with self._lock:
+            moving = [j for j in self._jobs if j.job_id in ids]
+            if not moving:
+                return
+            rest = [j for j in self._jobs if j.job_id not in ids]
+            idx = next((i for i, j in enumerate(rest) if j.job_id == before_job_id), len(rest))
+            self._jobs = rest[:idx] + moving + rest[idx:]
+        self._emit("reordered", moving[0])
+        self._wake.set()
+
     def _move_to(self, job_id, position):
         with self._lock:
             job = next((j for j in self._jobs if j.job_id == job_id), None)
