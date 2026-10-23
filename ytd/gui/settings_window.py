@@ -338,6 +338,8 @@ class SettingsWindow:
                        "each connection; idle connections automatically take over the slowest part of the file.")
         self._choice(b, "http_connections", "Connections per direct download", list(range(1, 17)), 1, width=90,
                      labels=[str(i) for i in range(1, 17)])
+        self._bool(b, "http_adaptive_connections", "Adaptive: start with one connection and add more only while they "
+                   "make the download faster (recommended)", 5, True)
         self._choice(b, "concurrent_fragments", "Parallel fragments for streaming media", list(range(1, 17)), 2,
                      width=90, labels=[str(i) for i in range(1, 17)])
         self._text(b, "download_timeout", "Network timeout (seconds)", 3, width=100)
@@ -619,7 +621,7 @@ class SettingsWindow:
         for key in ("minimize_to_tray", "notifications_enabled", "clipboard_monitor_enabled",
                     "restore_queue_on_start", "prefer_h264", "embed_metadata", "embed_chapters", "embed_thumbnail",
                     "subtitle_include_auto", "subtitle_embed", "api_enabled", "mica_backdrop",
-                    "browser_capture_enabled", "update_check_on_start"):
+                    "browser_capture_enabled", "update_check_on_start", "http_adaptive_connections"):
             updates[key] = bool(self._value(key))
         for key in ("default_mode", "default_quality", "default_container", "default_audio_format",
                     "default_audio_quality", "subtitle_format", "cookies_mode", "cookies_browser",

@@ -16,6 +16,9 @@ installers, documents, direct media file links).
     half of the segment with the most bytes left, so the last few percent
     aren't left to one slow connection. A "safe zone" ahead of the busy
     writer guarantees the two never overlap.
+  * adaptive connections: begins with one and adds more only while that
+    measurably speeds the download up (an explicit per-download count is used
+    as-is)
   * global + per-download speed limits (ytd.bandwidth), retries with backoff
     that reset whenever data was received, proxy, timeout, disk-space check,
     optional checksum verification, pause and cancel
@@ -55,6 +58,12 @@ SEGMENT_MIN_SIZE = 2 * 1024 * 1024
 # another one. Must exceed CHUNK: a write already in flight can't cross it.
 SAFE_ZONE = 1024 * 1024
 STATE_SAVE_INTERVAL = 2.0
+# Adaptive connections: start with one connection and double the count every
+# RAMP_SECONDS while that raises throughput by at least RAMP_MIN_GAIN.
+# Measured on a fast CDN, extra connections only cost TLS handshakes and slow
+# starts; on servers that cap each connection they multiply the speed.
+RAMP_SECONDS = 1.0
+RAMP_MIN_GAIN = 1.15
 MAX_CONNECTIONS = 16
 STREAM_RETRIES = 5
 _HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
@@ -308,12 +317,14 @@ class HttpEngine(MediaProvider):
         wanted = (options.get("connections") or getattr(job, "queue_connections", None)
                   or cfg.get("http_connections") or 1)
         connections = max(1, min(MAX_CONNECTIONS, int(wanted)))
+        # a count the user picked for this download is honoured exactly; defaults ramp up adaptively
+        adaptive = bool(cfg.get("http_adaptive_connections")) and not options.get("connections")
         use_segments = job.resumable and size and size >= SEGMENT_MIN_FILE and connections > 1
 
         try:
             if use_segments:
                 self._download_segmented(job, info, part, state_path, state, size, connections, limiters,
-                                         progress_hook, headers)
+                                         progress_hook, headers, adaptive)
             else:
                 job.connections = 1
                 self._download_single(job, info, part, state_path, size, limiters, progress_hook, headers)
@@ -406,11 +417,12 @@ class HttpEngine(MediaProvider):
 
     # -- segmented -- #
     def _download_segmented(self, job, info, part, state_path, state, size, connections, limiters, progress_hook,
-                            headers):
+                            headers, adaptive=False):
         if state and state.get("segments"):
             segments = [list(s) for s in state["segments"]]
         else:
-            segments = [[a, b, 0] for a, b in split_to_range(size, SEGMENT_MIN_SIZE, connections)]
+            initial = 1 if adaptive else connections  # adaptive: later connections join by splitting
+            segments = [[a, b, 0] for a, b in split_to_range(size, SEGMENT_MIN_SIZE, initial)]
             with open(part, "wb") as f:
                 f.truncate(size)  # pre-size once; segments write into disjoint regions
         if not os.path.exists(part):
@@ -426,6 +438,11 @@ class HttpEngine(MediaProvider):
         active = set()
         validator = info.get("etag") or info.get("last_modified")
         stats = {"splits": 0}
+        allowed = [1 if adaptive else connections]  # connections currently permitted to work
+
+        def all_done():
+            with lock:
+                return all(s[0] + s[2] > s[1] for s in segments)
 
         def take_work():
             """Next segment index for an idle connection: an untouched one
@@ -511,7 +528,11 @@ class HttpEngine(MediaProvider):
                     if stop.wait(min(2 ** attempt, 20)):
                         return
 
-        def worker():
+        def worker(n):
+            while n >= allowed[0]:  # adaptive: wait until this connection is let in
+                if stop.is_set() or all_done():
+                    return
+                stop.wait(0.1)
             session, timeout = _session(self.settings, headers)
             idx = None
             try:
@@ -540,8 +561,10 @@ class HttpEngine(MediaProvider):
 
         # One thread per connection even when fewer segments are pending:
         # idle connections split the busy segments (see take_work).
-        threads = [threading.Thread(target=worker, daemon=True, name=f"mdm-http-{job.job_id}-{i}")
+        threads = [threading.Thread(target=worker, args=(i,), daemon=True, name=f"mdm-http-{job.job_id}-{i}")
                    for i in range(connections)]
+        ramp = {"at": time.monotonic(), "bytes": sum(s[2] for s in segments), "speed": None,
+                "done": not adaptive or connections == 1}
         started = time.monotonic()
         for t in threads:
             t.start()
@@ -563,6 +586,21 @@ class HttpEngine(MediaProvider):
                     job.segment_map = [(s[0], s[1], s[2]) for s in sorted(segments)]
                 progress_hook({"status": "downloading", "downloaded_bytes": done, "total_bytes": size,
                                "filename": part, "elapsed": time.monotonic() - started})
+                now = time.monotonic()
+                if not ramp["done"] and now - ramp["at"] >= RAMP_SECONDS:
+                    speed = (done - ramp["bytes"]) / (now - ramp["at"])
+                    remaining = size - done
+                    if ramp["speed"] is not None and speed < ramp["speed"] * RAMP_MIN_GAIN:
+                        ramp["done"] = True  # the last step didn't help: keep what we have
+                        log.info("Job %s: staying at %s connection(s) (%.1f MB/s)", job.job_id, allowed[0],
+                                 speed / 1048576)
+                    elif remaining < 2 * SEGMENT_MIN_SIZE:
+                        ramp["done"] = True  # too little left to be worth more connections
+                    else:
+                        allowed[0] = min(connections, allowed[0] * 2)
+                        ramp["done"] = allowed[0] >= connections
+                        log.debug("Job %s: trying %s connections", job.job_id, allowed[0])
+                    ramp.update(at=now, bytes=done, speed=speed)
                 if time.monotonic() - last_save > STATE_SAVE_INTERVAL:
                     save_state(mon_fd)
                     last_save = time.monotonic()

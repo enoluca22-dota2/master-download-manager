@@ -105,6 +105,7 @@ def test_segmented_download_is_byte_exact(server, tmp_path, monkeypatch, setting
     monkeypatch.setattr(http_mod, "SEGMENT_MIN_FILE", 100_000)
     monkeypatch.setattr(http_mod, "SEGMENT_MIN_SIZE", 64 * 1024)
     settings_store.set("http_connections", 4)
+    settings_store.set("http_adaptive_connections", False)  # all 4 from the start (adaptive: test_http_upgrades)
     data = _payload(1_500_000, seed=7)
     server.files["big.bin"] = data
     job = _job(f"{server.base}/files/big.bin", str(tmp_path))

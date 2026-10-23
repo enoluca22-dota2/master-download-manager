@@ -73,6 +73,7 @@ def test_idle_connection_splits_the_slow_segment(server, tmp_path, small_segment
     data = _payload(1_200_000, seed=11)
     server.files["u.bin"] = data
     settings_store.set("http_connections", 2)
+    settings_store.set("http_adaptive_connections", False)
     job = _job(f"{server.base}/uneven/u.bin", str(tmp_path))
     result = HttpEngine(settings_store).run_download(job, lambda d: None)
     assert open(result["filepaths"][0], "rb").read() == data
@@ -111,6 +112,7 @@ def test_connections_option_overrides_setting(server, tmp_path, small_segments, 
 
 def test_queue_connection_limit_is_used_when_no_per_download_choice(server, tmp_path, small_segments, settings_store):
     settings_store.set("http_connections", 1)
+    settings_store.set("http_adaptive_connections", False)
     data = _payload(600_000, seed=14)
     server.files["q.bin"] = data
     job = _job(f"{server.base}/files/q.bin", str(tmp_path))
@@ -118,6 +120,31 @@ def test_queue_connection_limit_is_used_when_no_per_download_choice(server, tmp_
     HttpEngine(settings_store).run_download(job, lambda d: None)
     ranged = {r[1] for r in server.range_log if r[0] == "/files/q.bin" and r[1] and r[1] != "bytes=0-0"}
     assert len(ranged) >= 3
+
+
+def test_adaptive_stays_on_one_connection_when_it_is_fast_enough(server, tmp_path, small_segments, settings_store):
+    settings_store.set("http_connections", 8)  # adaptive is on by default
+    data = _payload(3_000_000, seed=15)
+    server.files["fast.bin"] = data
+    job = _job(f"{server.base}/files/fast.bin", str(tmp_path))
+    result = HttpEngine(settings_store).run_download(job, lambda d: None)
+    assert open(result["filepaths"][0], "rb").read() == data
+    ranged = [r for r in server.range_log if r[0] == "/files/fast.bin" and r[1] and r[1] != "bytes=0-0"]
+    assert len(ranged) == 1, ranged  # finished on one connection before a second one could pay off
+
+
+def test_adaptive_adds_connections_when_each_one_is_capped(server, tmp_path, small_segments, monkeypatch,
+                                                           settings_store):
+    monkeypatch.setattr(http_mod, "RAMP_SECONDS", 0.5)
+    server.set_slow_delay(0.02)  # every connection trickles ~0.8 MB/s
+    settings_store.set("http_connections", 4)
+    data = _payload(2_400_000, seed=16)
+    server.files["capped.bin"] = data
+    job = _job(f"{server.base}/slow/capped.bin", str(tmp_path))
+    peak = []
+    result = HttpEngine(settings_store).run_download(job, lambda d: peak.append(job.connections))
+    assert open(result["filepaths"][0], "rb").read() == data
+    assert max(peak) >= 2, f"never added a connection: {max(peak)}"
 
 
 # ---------------------------------------------------------- validation --- #

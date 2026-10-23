@@ -109,7 +109,8 @@ DEFAULT_SETTINGS = {
     "download_timeout": 30,
     "proxy": "",
     "concurrent_fragments": 8,
-    "http_connections": 4,
+    "http_connections": 4,  # the maximum; with adaptive on, more are only used if they speed things up
+    "http_adaptive_connections": True,
     # Torrent
     "torrent_max_connections": 200,
     "torrent_download_limit_kbps": 0,
