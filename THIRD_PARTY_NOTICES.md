@@ -12,13 +12,36 @@ browser extensions and build scripts) is not covered by any of the licenses
 below. The project currently has no license file of its own; choosing one is
 up to the author.
 
-Versions below are those installed in the build environment on 2026-10-03.
+Versions below are those installed in the build environment on 2026-10-23 (Master Download Manager 4.0.0).
+
+## 0. AB Download Manager (design reference)
+
+Master Download Manager 4.0 adopted several techniques after studying
+**AB Download Manager** 1.11.1 by AmirHossein Abdolmotallebi
+(https://github.com/amir1376/ab-download-manager, Apache License 2.0) and its
+browser integration (https://github.com/amir1376/ab-download-manager-browser-integration,
+Apache License 2.0). They were re-implemented independently in Python; **no
+AB Download Manager source code, assets, icons or branding are included**.
+Adapted ideas:
+
+* dynamic splitting of the busiest download segment with a safe zone ahead
+  of the active writer, and an even initial split (`ytd/providers/http.py`)
+* a global speed limiter chained with per-download limiters (`ytd/bandwidth.py`)
+* named queues with per-queue concurrency, weekday start/stop schedules and
+  stop-when-empty (`ytd/queues.py`, `ytd/scheduler.py`)
+* a cancellable countdown before a power action (`ytd/gui/power_dialog.py`)
+* extension-based default file categories (`ytd/categories.py`)
+* the main-window layout (category tree + queues sidebar, icon toolbar,
+  download table, status bar) and browser-download capture with file-type,
+  minimum-size and site filters (the extension's `ytdShouldCapture`)
+
+The Apache-2.0 license text is included in `licenses/ab-download-manager-1.11.1/`.
 
 ## 1. Components that do the actual downloading
 
 | Component | Version | License | Purpose | Bundled | Required at runtime | Source |
 |---|---|---|---|---|---|---|
-| **yt-dlp** | 2026.08.19 | Unlicense (public domain dedication) | Media engine: extractors, format selection, HLS/DASH downloading, post-processing | Yes (Python package, built from the local `yt-dlp-master` source) | Yes | https://github.com/yt-dlp/yt-dlp |
+| **yt-dlp** | 2026.08.19 | Unlicense (public domain dedication) | Media engine: extractors, format selection, HLS/DASH downloading, post-processing | Yes (Python package; the pinned PyPI release, or a local audited source tree when present) | Yes | https://github.com/yt-dlp/yt-dlp |
 | **yt-dlp-ejs** | 0.8.0 | Unlicense AND MIT AND ISC (the solver bundles `meriyah` (ISC) and `astring` (MIT)) | Scripts that solve YouTube's JavaScript challenges | Yes | Yes (YouTube) | https://github.com/yt-dlp/ejs |
 | **deno** | 2.9.7 | MIT (the binary also contains V8, BSD-3-Clause, and Rust crates under MIT/Apache-2.0) | JavaScript runtime that executes the yt-dlp-ejs scripts, sandboxed (`--no-remote`, no network or file permissions) | Yes (`tools/deno/deno.exe`) | Yes (YouTube) | https://github.com/denoland/deno |
 | **FFmpeg / FFprobe** | n9.0.2-22-g46d8f462ee (BtbN LGPL shared build, autobuild-2026-10-01-13-06) | LGPL-3.0-or-later (built with `--enable-version3`, no GPL or non-free parts) | Merging video+audio, audio extraction, remuxing, subtitle conversion/embedding, thumbnail & metadata embedding | Yes (`tools/ffmpeg/`, separate executables + DLLs) | Yes, for merging/conversion | https://ffmpeg.org · build scripts https://github.com/BtbN/FFmpeg-Builds |

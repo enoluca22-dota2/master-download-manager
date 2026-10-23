@@ -83,3 +83,46 @@ document.getElementById("block-domain-add").addEventListener("click", async () =
 
 loadConnection();
 renderCaptureRules();
+
+
+// ---------------------------------------------------------------------
+// Queue choice + capture status (4.0)
+// ---------------------------------------------------------------------
+const queueSelect = document.getElementById("queue");
+const captureState = document.getElementById("capture-state");
+
+async function renderQueuesAndCapture() {
+  const stored = await ytdBrowserApi.storage.local.get({ queueId: "" });
+  queueSelect.innerHTML = "";
+  const main = document.createElement("option");
+  main.value = "";
+  main.textContent = "Main (starts right away)";
+  queueSelect.appendChild(main);
+  try {
+    const queues = await ytdListQueues();
+    queues.filter((q) => q.id !== "main").forEach((q) => {
+      const opt = document.createElement("option");
+      opt.value = q.id;
+      opt.textContent = `${q.name}${q.running ? "" : " (starts when the queue runs)"}`;
+      queueSelect.appendChild(opt);
+    });
+  } catch (e) { /* app not running: only Main is offered */ }
+  queueSelect.value = stored.queueId || "";
+  if (queueSelect.value !== (stored.queueId || "")) queueSelect.value = "";
+  const cfg = await ytdGetBrowserConfig(true);
+  if (cfg.unreachable) {
+    captureState.textContent = "The app isn't reachable — capture is inactive (the browser downloads normally).";
+  } else if (cfg.capture_enabled) {
+    captureState.textContent = `On — ${cfg.file_types.length} file types` +
+      (cfg.min_size_kb ? `, larger than ${cfg.min_size_kb} KB` : "") +
+      (cfg.blacklist.length ? `, except ${cfg.blacklist.join(", ")}` : "") + ".";
+  } else {
+    captureState.textContent = "Off (default). Turn it on in the app if you want it.";
+  }
+}
+
+queueSelect.addEventListener("change", async () => {
+  await ytdBrowserApi.storage.local.set({ queueId: queueSelect.value });
+});
+
+renderQueuesAndCapture();

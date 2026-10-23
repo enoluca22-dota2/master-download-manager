@@ -1,12 +1,14 @@
 """Build Master Download Manager.
 
 Usage (from the project folder):
-    python build.py setup       create .venv, install yt-dlp from ../yt-dlp-master + requirements, stage tools
+    python build.py setup       create .venv, install yt-dlp (../yt-dlp-master if present, else the pinned
+                                PyPI release) + requirements, stage tools
     python build.py test        run the automated test suite
     python build.py exe         build dist/MasterDownloadManager/MasterDownloadManager.exe
     python build.py installer   build "dist/Master Download Manager Setup <version>.exe"
     python build.py extensions  zip the Chrome/Firefox extensions into dist/
-    python build.py all         setup (if needed), test, exe, installer, extensions
+    python build.py checksums   write dist/SHA256SUMS.txt for the release assets
+    python build.py all         setup (if needed), test, exe, installer, extensions, checksums
 
 Everything after `setup` runs with .venv's Python, so the bundle contains
 exactly the audited, pinned dependencies — never whatever happens to be
@@ -27,6 +29,9 @@ ROOT = Path(__file__).resolve().parent
 VENV = ROOT / ".venv"
 VENV_PY = VENV / "Scripts" / "python.exe"
 YTDLP_SOURCE = ROOT.parent / "yt-dlp-master"
+# Audited release used when the local source tree isn't present (same version
+# the 3.x builds shipped; Unlicense). Bump deliberately, after testing YouTube.
+YTDLP_PINNED = "yt-dlp==2026.08.19"
 DIST = ROOT / "dist"
 APP_DIST = DIST / "MasterDownloadManager"
 
@@ -52,11 +57,12 @@ def ensure_venv():
 
 def setup():
     py = ensure_venv()
-    if not (YTDLP_SOURCE / "yt_dlp" / "version.py").is_file():
-        sys.exit(f"yt-dlp source not found at {YTDLP_SOURCE}")
-    # yt-dlp itself from the audited local source (no extras: its [default]
-    # extra would pull in GPL mutagen, which this app deliberately excludes).
-    run([py, "-m", "pip", "install", "--upgrade", str(YTDLP_SOURCE)])
+    # yt-dlp without extras: its [default] extra would pull in GPL mutagen,
+    # which this app deliberately excludes.
+    if (YTDLP_SOURCE / "yt_dlp" / "version.py").is_file():
+        run([py, "-m", "pip", "install", "--upgrade", str(YTDLP_SOURCE)])
+    else:
+        run([py, "-m", "pip", "install", YTDLP_PINNED])
     run([py, "-m", "pip", "install", "-r", ROOT / "requirements.txt"])
     run([py, ROOT / "tools" / "fetch_tools.py"])
 
@@ -90,6 +96,7 @@ def exe():
     run([py, ROOT / "tools" / "fetch_tools.py", "--check"])
     sync_extensions()
     run([py, ROOT / "build_icons.py"])
+    run([py, ROOT / "tools" / "make_installer_art.py"])
     run([py, ROOT / "tools" / "collect_licenses.py"])
     _write_version_file(app_version())
     run([py, "-m", "PyInstaller", "--noconfirm", "--clean", "--distpath", DIST, "--workpath", ROOT / "build" / "pyinstaller",
@@ -157,8 +164,29 @@ def extensions():
         print(f"Wrote {zip_path}")
 
 
+def checksums():
+    """SHA256SUMS.txt for the release: the in-app updater refuses an
+    installer that isn't listed here with a matching hash."""
+    import hashlib
+    version = app_version()
+    names = [f"Master Download Manager Setup {version}.exe", "MasterDownloadManager-extension-chrome.zip",
+             "MasterDownloadManager-extension-firefox.zip"]
+    lines = []
+    for name in names:
+        path = DIST / name
+        if not path.is_file():
+            sys.exit(f"Missing release asset: {path}")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        # GitHub replaces spaces in asset names with dots
+        lines.append(f"{digest}  {name.replace(' ', '.')}")
+        print(f"{digest}  {name}")
+    (DIST / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote {DIST / 'SHA256SUMS.txt'}")
+
+
 def main():
-    commands = {"setup": setup, "test": test, "exe": exe, "installer": installer, "extensions": extensions}
+    commands = {"setup": setup, "test": test, "exe": exe, "installer": installer, "extensions": extensions,
+                "checksums": checksums}
     if len(sys.argv) < 2 or sys.argv[1] not in (*commands, "all"):
         print(__doc__)
         sys.exit(1)
@@ -169,6 +197,7 @@ def main():
         exe()
         installer()
         extensions()
+        checksums()
     else:
         commands[sys.argv[1]]()
 

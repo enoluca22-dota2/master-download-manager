@@ -600,6 +600,11 @@ class MediaEngine(MediaProvider):
         limit_kbps = int(o.get("speed_limit_kbps") or cfg.get("speed_limit_kbps", 0) or 0)
         if limit_kbps > 0:
             opts["ratelimit"] = limit_kbps * 1024
+        # yt-dlp can't draw from MDM's shared limiter: it gets an equal share of
+        # the global cap (fixed when the download starts)
+        share = int(getattr(job, "global_share_bps", 0) or 0)
+        if share > 0:
+            opts["ratelimit"] = min(opts.get("ratelimit") or share, share)
         if o.get("playlist_items"):
             opts["playlist_items"] = str(o["playlist_items"])
         section = o.get("section")

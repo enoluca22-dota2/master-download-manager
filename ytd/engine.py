@@ -624,6 +624,7 @@ class DownloadManager:
             self._finish_active(job)
             return
 
+        job.global_share_bps = bandwidth.manager.share_for_job(self.active_count())
         speed_samples = collections.deque(maxlen=8)
         last_emit = [0.0]
 

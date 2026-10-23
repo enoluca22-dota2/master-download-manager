@@ -154,6 +154,18 @@ def create_app(manager, settings_store, on_open_request=None, on_added=None):
         user turned it on, by browser download capture."""
         if body.origin == "capture" and not settings_store.get("browser_capture_enabled", False):
             raise HTTPException(status_code=409, detail="Browser download capture is turned off in MDM.")
+        if body.origin == "capture" and body.url.lower().startswith(("http://", "https://")):
+            # MDM never receives the browser's cookies, so only take over files
+            # it can fetch on its own; otherwise the browser keeps the download.
+            from ..providers.http import probe_url
+            try:
+                info = probe_url(body.url, settings_store, {"Referer": body.referer} if body.referer else None)
+            except Exception as e:  # noqa: BLE001
+                raise HTTPException(status_code=424, detail=f"MDM can't fetch this file by itself ({e.__class__.__name__}); "
+                                                            "the browser keeps the download.")
+            if (info.get("content_type") or "").startswith(("text/html", "application/xhtml")):
+                raise HTTPException(status_code=424, detail="The link needs the browser's session (got a web page); "
+                                                            "the browser keeps the download.")
         job, engine, reason = _queue_auto(body.url, body.referer, body.title, body.queue_id, body.filename,
                                           body.save_dir, body.start_paused)
         log.info("Link sent from browser (%s) queued as job %s (%s: %s)", body.origin, job.job_id, engine, reason)

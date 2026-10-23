@@ -24,6 +24,7 @@ except ImportError:
 
 from yt_dlp.utils import DownloadCancelled
 
+from .. import bandwidth
 from ..config import CACHE_DIR, DEFAULT_SETTINGS
 from ..logging_setup import get_logger
 from ..models import FormatInfo, MediaInfo
@@ -157,9 +158,13 @@ class _SharedSession:
     def _apply(self, settings_store):
         def kbps(key):
             return max(0, int(_cfg(settings_store, key) or 0)) * 1024
+        download = kbps("torrent_download_limit_kbps")
+        global_kbps, _ = bandwidth.manager.effective_kbps()  # one session = one consumer of the global cap
+        if global_kbps:
+            download = min(download or global_kbps * 1024, global_kbps * 1024)
         self._session.apply_settings({
             "connections_limit": max(10, int(_cfg(settings_store, "torrent_max_connections") or 200)),
-            "download_rate_limit": kbps("torrent_download_limit_kbps"),
+            "download_rate_limit": download,
             "upload_rate_limit": kbps("torrent_upload_limit_kbps"),
         })
 

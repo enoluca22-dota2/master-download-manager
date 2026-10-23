@@ -104,6 +104,7 @@ function ytdCreateMenus() {
     chrome.contextMenus.create({ id: YTD_MENU_LINK, title: "Download link with Master Download Manager", contexts: ["link"] });
     chrome.contextMenus.create({ id: YTD_MENU_MEDIA, title: "Download this video/audio with Master Download Manager", contexts: ["video", "audio"] });
     chrome.contextMenus.create({ id: YTD_MENU_PAGE, title: "Download this page with Master Download Manager", contexts: ["page"] });
+    chrome.contextMenus.create({ id: YTD_MENU_SELECTION, title: "Download selected links with Master Download Manager", contexts: ["selection"] });
   });
 }
 chrome.runtime.onInstalled.addListener(ytdCreateMenus);
@@ -139,3 +140,99 @@ async function ytdOnMenuClicked(info, tab) {
   }
 }
 chrome.contextMenus.onClicked.addListener(ytdOnMenuClicked);
+
+// ---------------------------------------------------------------------
+// MDM 4.0: "Download selected links with Master Download Manager".
+// Runs a tiny function in the clicked tab (activeTab grants this only for
+// the tab the user right-clicked) that collects the links inside the
+// selection — <a href> elements and URLs/magnets typed as text — and sends
+// them to the app in one batch. Nothing else is read from the page.
+// ---------------------------------------------------------------------
+const YTD_MENU_SELECTION = "mdm-download-selection";
+
+function ytdCollectSelectedLinks() {
+  const out = new Set();
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return [];
+  for (let i = 0; i < sel.rangeCount; i++) {
+    const range = sel.getRangeAt(i);
+    const frag = range.cloneContents();
+    frag.querySelectorAll("a[href]").forEach((a) => {
+      try { out.add(new URL(a.getAttribute("href"), document.baseURI).href); } catch (e) { /* ignore */ }
+    });
+    let node = range.commonAncestorContainer;
+    while (node && node.nodeType !== 1) node = node.parentNode;
+    const inside = node && node.closest ? node.closest("a[href]") : null;
+    if (inside) out.add(inside.href);
+  }
+  (sel.toString().match(/(https?:\/\/[^\s"'<>]+|magnet:\?[^\s"'<>]+)/gi) || []).forEach((u) => out.add(u));
+  return [...out].filter((u) => /^(https?:\/\/|magnet:\?)/i.test(u)).slice(0, 500);
+}
+
+async function ytdDownloadSelection(tab) {
+  if (!tab || tab.id === undefined) return;
+  let links = [];
+  try {
+    const results = await ytdBrowserApi.scripting.executeScript({ target: { tabId: tab.id }, func: ytdCollectSelectedLinks });
+    links = (results && results[0] && results[0].result) || [];
+  } catch (e) {
+    console.warn("MDM: couldn't read the selection:", e.message);
+  }
+  if (!links.length) {
+    ytdFlashBadge("0", "#d14a5a");
+    return;
+  }
+  const referer = tab.url && /^https?:/i.test(tab.url) ? tab.url : null;
+  try {
+    const result = await ytdSendLinks(links, referer);
+    ytdFlashBadge(String(result.added.length), result.failed.length ? "#c98a1a" : "#178b61");
+  } catch (err) {
+    console.warn("MDM:", err.message);
+    ytdFlashBadge("!", "#d14a5a");
+  }
+}
+
+ytdBrowserApi.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === YTD_MENU_SELECTION) ytdDownloadSelection(tab);
+});
+
+
+// ---------------------------------------------------------------------
+// MDM 4.0: optional capture of browser downloads.
+// Only when the user switched it on in MDM → Settings → Browser Integration
+// (off by default), and only for the file types / sizes / sites chosen there.
+// The browser's download is PAUSED (not cancelled) while MDM is asked; it is
+// cancelled only after MDM accepted it, and resumed untouched if MDM isn't
+// running or can't fetch the file on its own (e.g. it needs a signed-in session).
+// ---------------------------------------------------------------------
+const ytdCapturing = new Set();
+
+async function ytdOnDownloadCreated(item) {
+  if (ytdCapturing.has(item.id) || item.state !== "in_progress") return;
+  const cfg = await ytdGetBrowserConfig();
+  const decision = ytdShouldCapture(item, cfg);
+  if (!decision.capture) return;
+  ytdCapturing.add(item.id);
+  try {
+    try { await ytdBrowserApi.downloads.pause(item.id); } catch (e) { /* already finished/too fast */ }
+    const url = item.finalUrl || item.url;
+    try {
+      await ytdSendLink(url, item.referrer || null, null, "capture");
+    } catch (err) {
+      console.info("MDM: leaving this download to the browser:", err.message);
+      try { await ytdBrowserApi.downloads.resume(item.id); } catch (e) { /* nothing to resume */ }
+      if (!/turned off/.test(err.message)) ytdFlashBadge("↩", "#c98a1a");
+      if (/turned off/.test(err.message)) ytdGetBrowserConfig(true);
+      return;
+    }
+    try { await ytdBrowserApi.downloads.cancel(item.id); } catch (e) { /* ignore */ }
+    try { await ytdBrowserApi.downloads.erase({ id: item.id }); } catch (e) { /* ignore */ }
+    ytdFlashBadge("✓", "#178b61");
+  } finally {
+    ytdCapturing.delete(item.id);
+  }
+}
+
+if (ytdBrowserApi.downloads && ytdBrowserApi.downloads.onCreated) {
+  ytdBrowserApi.downloads.onCreated.addListener((item) => { ytdOnDownloadCreated(item).catch(() => {}); });
+}

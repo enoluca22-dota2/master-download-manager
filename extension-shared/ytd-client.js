@@ -5,7 +5,7 @@
 // Firefox exposes the promise-based `browser` global; Chrome's MV3 service
 // worker also returns promises from chrome.* APIs, so we just pick whichever
 // exists once and use it everywhere.
-const ytdBrowserApi = (typeof browser !== "undefined") ? browser : chrome;
+const ytdBrowserApi = (typeof browser !== "undefined") ? browser : (typeof chrome !== "undefined" ? chrome : undefined);
 
 const YTD_DEFAULTS = { apiPort: 47821, apiToken: "" };
 
@@ -90,10 +90,96 @@ async function ytdCreateDownload(url, formatId, options = {}) {
   });
 }
 
+// Which MDM queue links from this browser go to ("" = the app's Main queue).
+async function ytdGetQueuePreference() {
+  const stored = await ytdBrowserApi.storage.local.get({ queueId: "" });
+  return stored.queueId || null;
+}
+
+async function ytdListQueues() {
+  return ytdApiFetch("/queues", { timeoutMs: 3000 });
+}
+
 // Send any link (media page, file, magnet, .torrent) to the app, which picks
 // the right engine and uses the user's default quality/format.
-async function ytdSendLink(url, referer = null, title = null) {
-  return ytdApiFetch("/downloads/auto", { method: "POST", body: { url, referer, title }, timeoutMs: 30000 });
+async function ytdSendLink(url, referer = null, title = null, origin = "menu") {
+  const queue_id = await ytdGetQueuePreference();
+  return ytdApiFetch("/downloads/auto", {
+    method: "POST", body: { url, referer, title, queue_id, origin }, timeoutMs: 30000,
+  });
+}
+
+// "Download selected links": several links in one request.
+async function ytdSendLinks(urls, referer = null) {
+  const queue_id = await ytdGetQueuePreference();
+  return ytdApiFetch("/downloads/batch", { method: "POST", body: { urls, referer, queue_id }, timeoutMs: 30000 });
+}
+
+// What the user allowed in MDM → Settings → Browser Integration. Capture of
+// browser downloads is OFF unless enabled there; cached for a minute.
+let ytdBrowserConfigCache = { value: null, at: 0 };
+async function ytdGetBrowserConfig(force = false) {
+  if (!force && ytdBrowserConfigCache.value && Date.now() - ytdBrowserConfigCache.at < 60000) {
+    return ytdBrowserConfigCache.value;
+  }
+  let value;
+  try {
+    value = await ytdApiFetch("/browser/config", { timeoutMs: 1500 });
+  } catch (e) {
+    value = { capture_enabled: false, file_types: [], min_size_kb: 0, blacklist: [], unreachable: true };
+  }
+  ytdBrowserConfigCache = { value, at: Date.now() };
+  return value;
+}
+
+const YTD_MIME_EXT = {
+  "application/zip": "zip", "application/x-zip-compressed": "zip", "application/x-rar-compressed": "rar",
+  "application/vnd.rar": "rar", "application/x-7z-compressed": "7z", "application/x-msdownload": "exe",
+  "application/x-msi": "msi", "application/x-iso9660-image": "iso", "application/pdf": "pdf",
+  "video/mp4": "mp4", "video/x-matroska": "mkv", "video/webm": "webm", "audio/mpeg": "mp3",
+  "application/vnd.android.package-archive": "apk", "application/x-bittorrent": "torrent",
+};
+
+function ytdFileExtension(name, url, mime) {
+  const pick = (s) => {
+    const m = /\.([a-z0-9]{1,12})$/i.exec(s || "");
+    return m ? m[1].toLowerCase() : "";
+  };
+  const base = (name || "").split(/[\\/]/).pop();
+  let ext = pick(base);
+  if (!ext) {
+    try { ext = pick(decodeURIComponent(new URL(url).pathname)); } catch (e) { ext = ""; }
+  }
+  return ext || YTD_MIME_EXT[(mime || "").split(";")[0].trim().toLowerCase()] || "";
+}
+
+// "example.com" matches example.com and its subdomains; "*.example.com" only subdomains.
+function ytdHostBlocked(url, patterns) {
+  const host = ytdHostnameOf(url);
+  if (!host) return false;
+  return (patterns || []).some((raw) => {
+    const p = String(raw).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+    if (!p) return false;
+    if (p.startsWith("*.")) return host.endsWith(p.slice(1));
+    return host === p || host.endsWith("." + p);
+  });
+}
+
+// Decide whether a browser download should be offered to MDM. Pure function
+// (unit-tested with node from tools/browser_extension_test.py).
+function ytdShouldCapture(item, cfg) {
+  if (!cfg || !cfg.capture_enabled) return { capture: false, why: "capture off" };
+  const url = item.finalUrl || item.url || "";
+  if (!/^https?:/i.test(url)) return { capture: false, why: "not http(s)" };
+  if (item.byExtensionId) return { capture: false, why: "started by an extension" };
+  if (ytdHostBlocked(url, cfg.blacklist) || (item.referrer && ytdHostBlocked(item.referrer, cfg.blacklist))) {
+    return { capture: false, why: "site excluded" };
+  }
+  const ext = ytdFileExtension(item.filename, url, item.mime);
+  if (!ext || !(cfg.file_types || []).includes(ext)) return { capture: false, why: `type .${ext || "?"} not selected` };
+  const size = item.totalBytes > 0 ? item.totalBytes : (item.fileSize > 0 ? item.fileSize : 0);
+  if (cfg.min_size_kb && size && size < cfg.min_size_kb * 1024) return { capture: false, why: "smaller than the minimum" };
+  return { capture: true, why: `.${ext}` };
 }
 
 function ytdIsSendableUrl(url) {
@@ -154,4 +240,9 @@ async function ytdBlockDomain(url) {
 async function ytdUnblockDomain(host) {
   const rules = await ytdGetCaptureRules();
   await ytdSaveCaptureRules({ blockedDomains: rules.blockedDomains.filter((d) => d !== host) });
+}
+
+// Lets the node-based unit test import the pure helpers (ignored by browsers).
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { ytdShouldCapture, ytdFileExtension, ytdHostBlocked, ytdHostnameOf, ytdIsSendableUrl };
 }

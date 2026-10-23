@@ -44,6 +44,15 @@
   <button id="test" class="secondary">Test Connection</button>
   <div id="status"></div>
 
+  <h2>Where links go</h2>
+  <p class="hint">Links sent from this browser (right-click menus, selected links, captured downloads) are added to this queue in the app.</p>
+  <label for="queue">Queue</label>
+  <select id="queue" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #2a3858;background:#121a2e;color:#f4f7ff;"></select>
+
+  <h2>Browser download capture</h2>
+  <p class="hint">When switched on in the app (Settings → Browser Integration), downloads of the file types listed there are handed to Master Download Manager. If the app isn't running or can't fetch a file by itself, the browser downloads it normally. No cookies or browsing history are ever sent.</p>
+  <div id="capture-state" class="ytd-empty">Checking…</div>
+
   <h2>Blocked sites</h2>
   <p class="hint">Master Download Manager won't show its capture button on these sites. Add a site here, or use "Don't capture media from this site" in the capture popup.</p>
   <div class="ytd-row-flex">

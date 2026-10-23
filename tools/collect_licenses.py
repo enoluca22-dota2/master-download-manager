@@ -86,6 +86,13 @@ def collect():
         inventory.append({"name": meta["Name"], "version": meta["Version"],
                           "license": license_expr, "files": copied})
 
+    # Design reference (techniques adapted, no code copied): AB Download Manager, Apache-2.0.
+    ab = OUT / "ab-download-manager-1.11.1"
+    ab.mkdir()
+    shutil.copy2(MANUAL / "ab-download-manager-LICENSE.txt", ab / "LICENSE.txt")
+    inventory.append({"name": "AB Download Manager (design reference; techniques adapted, no code copied)",
+                      "version": "1.11.1", "license": "Apache-2.0", "files": ["LICENSE.txt"]})
+
     # Python runtime + Tcl/Tk (bundled by PyInstaller).
     py = OUT / f"Python-{sys.version.split()[0]}"
     py.mkdir()

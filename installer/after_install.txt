@@ -1,10 +1,14 @@
 Master Download Manager is installed.
 
 Getting started
-  * Click "+ Add URL" (or press Ctrl+V in the window) and paste a video or
-    playlist link, a direct file link, a magnet link, or open a .torrent file.
+  * Click "New Download" (or press Ctrl+V in the window) and paste a video or
+    playlist link, a direct file link, several links at once, a magnet link,
+    or open a .torrent file.
+  * Queues: use "Queues" in the toolbar to create queues, schedule them
+    (e.g. overnight) and choose what happens when they finish.
   * Browser extension: open Settings -> Browser Integration in the app for the
-    extension folders and your security token.
+    extension folders and your security token. Capturing normal browser
+    downloads is optional and off until you switch it on there.
 
 Everything the app needs (media engine, FFmpeg, JavaScript runtime, torrent
 engine) is included. It only uses the Internet for the downloads you start.

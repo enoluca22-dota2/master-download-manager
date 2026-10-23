@@ -3,7 +3,7 @@
 ; by tools/fetch_tools.py). Installs per-user by default (no admin needed).
 
 #ifndef AppVersion
-  #define AppVersion "3.0.0"
+  #define AppVersion "4.0.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\dist\MasterDownloadManager"
@@ -11,6 +11,7 @@
 
 #define AppName "Master Download Manager"
 #define AppExe "MasterDownloadManager.exe"
+#define AppURL "https://github.com/enoluca22-dota2/master-download-manager"
 
 [Setup]
 AppId={{6F2E9C1B-6A1D-4F6B-9B1E-6C9A2D7B3E41}
@@ -19,6 +20,10 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 ; The product name, not a company: the build is unsigned and no publisher is claimed.
 AppPublisher={#AppName}
+AppPublisherURL={#AppURL}
+AppSupportURL={#AppURL}/issues
+AppUpdatesURL={#AppURL}/releases
+AppComments=Download manager for files, media sites and torrents
 VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
@@ -27,6 +32,11 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
+; Upgrades install over the existing copy (same AppId): no uninstall first, settings/history untouched,
+; the previous install folder and task choices are reused.
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
+UsePreviousSetupType=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
@@ -38,7 +48,12 @@ UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+WizardStyle=modern dynamic windows11
+WizardImageFile=art\wizard-light-1x.bmp,art\wizard-light-2x.bmp
+WizardImageFileDynamicDark=art\wizard-dark-1x.bmp,art\wizard-dark-2x.bmp
+WizardSmallImageFile=art\wizard-small-light-1x.bmp,art\wizard-small-light-2x.bmp
+WizardSmallImageFileDynamicDark=art\wizard-small-dark-1x.bmp,art\wizard-small-dark-2x.bmp
+InfoBeforeFile=..\installer\before_install.txt
 ; Refuses to install/uninstall while the app is running (same mutex the app holds).
 AppMutex=Local\MasterDownloadManager.SingleInstance
 CloseApplications=yes
@@ -48,17 +63,32 @@ InfoAfterFile=..\installer\after_install.txt
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Types]
+Name: "full"; Description: "Full installation (recommended)"
+Name: "compact"; Description: "Program only (no browser extension files)"
+Name: "custom"; Description: "Custom"; Flags: iscustom
+
+[Components]
+Name: "app"; Description: "Master Download Manager (with media engine, FFmpeg and torrent engine)"; Types: full compact custom; Flags: fixed
+Name: "browser"; Description: "Browser extension files (Chrome, Edge, Firefox) — load them from Settings → Browser Integration"; Types: full
+
 [Tasks]
+Name: "startmenuicon"; Description: "Create a &Start Menu shortcut"; GroupDescription: "Shortcuts:"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "assoc_torrent"; Description: "Offer {#AppName} for .&torrent files (adds it to ""Open with"" and Windows Default apps; your current default app stays)"; GroupDescription: "Optional file and link types:"; Flags: unchecked
 Name: "assoc_magnet"; Description: "Open &magnet: links with {#AppName} (your current magnet app is restored on uninstall)"; GroupDescription: "Optional file and link types:"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\extensions\*"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: app
+Source: "{#SourceDir}\extensions\*"; DestDir: "{app}\extensions"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: browser
+
+[InstallDelete]
+; extension files from an older version are replaced as a whole (or removed when the component is unticked)
+Type: filesandordirs; Name: "{app}\extensions"
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"; Comment: "Download videos, playlists, files and torrents"
-Name: "{autoprograms}\{#AppName} Licenses"; Filename: "{app}\licenses"; Comment: "Third-party licenses"
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"; Comment: "Download videos, playlists, files and torrents"; Tasks: startmenuicon
+Name: "{autoprograms}\{#AppName} Licenses"; Filename: "{app}\licenses"; Comment: "Third-party licenses"; Tasks: startmenuicon
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"; Comment: "Download videos, playlists, files and torrents"; Tasks: desktopicon
 
 [Registry]
@@ -83,6 +113,7 @@ Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueNa
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Start {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{#AppURL}"; Description: "Open the project page on GitHub"; Flags: postinstall shellexec unchecked skipifsilent
 
 [UninstallDelete]
 ; Program files only. Your settings, history and downloads are kept

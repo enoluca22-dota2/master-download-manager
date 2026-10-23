@@ -33,12 +33,21 @@ def test_new_endpoints_require_token(client, method, path):
 
 
 def test_capture_is_refused_until_enabled(client, settings_store):
-    body = {"url": "http://127.0.0.1:9/file.zip", "origin": "capture", "start_paused": True}
-    assert client.post("/downloads/auto", json=body, headers=_auth(client)).status_code == 409
-    settings_store.set("browser_capture_enabled", True)
-    resp = client.post("/downloads/auto", json=body, headers=_auth(client))
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["engine"] == "http" and resp.json()["status"] == "Paused"
+    from local_http_server import LocalHTTPServer
+    with LocalHTTPServer() as srv:
+        srv.files["file.zip"] = b"PK" + b"x" * 1000
+        body = {"url": f"{srv.base}/files/file.zip", "origin": "capture", "start_paused": True}
+        assert client.post("/downloads/auto", json=body, headers=_auth(client)).status_code == 409
+        settings_store.set("browser_capture_enabled", True)
+        resp = client.post("/downloads/auto", json=body, headers=_auth(client))
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["engine"] == "http" and resp.json()["status"] == "Paused"
+        # a login page / web page instead of the file: the browser keeps the download
+        page = dict(body, url=f"{srv.base}/page")
+        assert client.post("/downloads/auto", json=page, headers=_auth(client)).status_code == 424
+    # unreachable without the browser's session/network: also left to the browser
+    gone = dict(body, url="http://127.0.0.1:9/file.zip")
+    assert client.post("/downloads/auto", json=gone, headers=_auth(client)).status_code == 424
 
 
 def test_browser_config_reflects_settings(client, settings_store):
