@@ -46,7 +46,7 @@ SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 QUEUE_FILE = os.path.join(DATA_DIR, "queue.json")
 QUEUES_FILE = os.path.join(DATA_DIR, "queues.json")  # named queues + their schedules
 SCHEDULER_FILE = os.path.join(DATA_DIR, "scheduler.json")  # speed profiles + recurring downloads
-HISTORY_DB = os.path.join(DATA_DIR, "history.sqlite3")
+HISTORY_DB = os.path.join(DATA_DIR, "download_history.sqlite3")  # created from HISTORY_FILE on first run
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 APP_ICON_FILE = os.path.join(RESOURCE_DIR, "mdm.ico")

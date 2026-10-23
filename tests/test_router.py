@@ -72,3 +72,10 @@ def test_default_selection_follows_settings(settings_store):
     assert default_selection("media", settings_store)[0] == "audio-flac"
     assert default_selection("torrent", settings_store)[0] == "torrent-all"
     assert default_selection("http", settings_store)[0] == "file"
+
+
+def test_streaming_manifests_route_to_media_engine():
+    from ytd.router import classify
+    assert classify("https://cdn.example.com/live/master.m3u8") == "media"
+    assert classify("https://cdn.example.com/vod/manifest.mpd?token=x") == "media"
+    assert classify("https://cdn.example.com/files/movie.mp4") == "http"

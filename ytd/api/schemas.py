@@ -7,6 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 
 _MAX_URL = 8192
+_QUEUE_ID = r"^[a-z0-9]{1,24}$"
 
 
 def _clean_url(v):
@@ -41,10 +42,22 @@ class DownloadOptions(BaseModel):
     embed_thumbnail: Optional[bool] = None
     playlist_items: Optional[str] = Field(default=None, pattern=r"^[0-9,:\- ]{1,200}$")
     speed_limit_kbps: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    connections: Optional[int] = Field(default=None, ge=1, le=16)
+    checksum: Optional[str] = Field(default=None, max_length=140)
+
+    @field_validator("checksum")
+    @classmethod
+    def checksum_well_formed(cls, v):
+        if v is None or not v.strip():
+            return None
+        from ..providers.http import parse_checksum
+        algo, digest = parse_checksum(v)  # ValueError -> 422
+        return f"{algo}:{digest}"
 
     def to_engine_options(self):
         o = {}
-        for key in ("container", "prefer_h264", "embed_metadata", "embed_thumbnail", "playlist_items", "speed_limit_kbps"):
+        for key in ("container", "prefer_h264", "embed_metadata", "embed_thumbnail", "playlist_items", "speed_limit_kbps",
+                    "connections", "checksum"):
             value = getattr(self, key)
             if value is not None:
                 o[key] = value
@@ -65,6 +78,9 @@ class CreateDownloadRequest(BaseModel):
     category: Optional[str] = None
     engine: Optional[str] = Field(default=None, pattern=r"^(media|torrent|http)$")
     options: Optional[DownloadOptions] = None
+    queue_id: Optional[str] = Field(default=None, pattern=_QUEUE_ID)
+    priority: int = Field(default=0, ge=-1, le=1)
+    start_paused: bool = False
 
     @field_validator("url")
     @classmethod
@@ -93,11 +109,55 @@ class AutoDownloadRequest(BaseModel):
     url: str
     referer: Optional[str] = None
     title: Optional[str] = None
+    queue_id: Optional[str] = Field(default=None, pattern=_QUEUE_ID)
+    filename: Optional[str] = Field(default=None, max_length=240)
+    save_dir: Optional[str] = Field(default=None, max_length=1024)
+    start_paused: bool = False
+    # "menu" (context menu / popup) or "capture" (a browser download handed over)
+    origin: str = Field(default="menu", pattern=r"^(menu|capture|selection)$")
 
     @field_validator("url")
     @classmethod
     def not_blank(cls, v):
         return _clean_url(v)
+
+    @field_validator("filename", "save_dir")
+    @classmethod
+    def blank_none(cls, v):
+        if v is None or not v.strip():
+            return None
+        return v.strip()
+
+    @field_validator("referer")
+    @classmethod
+    def referer_http_only(cls, v):
+        if v and (not v.startswith(("http://", "https://")) or len(v) > _MAX_URL or any(c in v for c in "\r\n")):
+            return None
+        return v
+
+
+class BatchAutoDownloadRequest(BaseModel):
+    """Several links at once ('Download selected links with MDM')."""
+    urls: List[str] = Field(min_length=1, max_length=500)
+    referer: Optional[str] = None
+    queue_id: Optional[str] = Field(default=None, pattern=_QUEUE_ID)
+    start_paused: bool = False
+
+    @field_validator("urls")
+    @classmethod
+    def clean_urls(cls, v):
+        seen, out = set(), []
+        for u in v:
+            try:
+                u = _clean_url(u)
+            except ValueError:
+                continue
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+        if not out:
+            raise ValueError("no valid links")
+        return out
 
     @field_validator("referer")
     @classmethod
@@ -115,7 +175,7 @@ class SettingsUpdate(BaseModel):
     max_concurrent_downloads: Optional[int] = Field(default=None, ge=1, le=16)
     max_retries: Optional[int] = Field(default=None, ge=0, le=10)
     download_timeout: Optional[int] = Field(default=None, ge=5, le=600)
-    appearance_mode: Optional[str] = Field(default=None, pattern=r"^(Dark|Light)$")
+    appearance_mode: Optional[str] = Field(default=None, pattern=r"^(Dark|Light|Black|System)$")
     minimize_to_tray: Optional[bool] = None
     start_with_windows: Optional[bool] = None
     notifications_enabled: Optional[bool] = None
