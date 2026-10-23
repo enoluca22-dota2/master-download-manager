@@ -278,7 +278,8 @@ def checksums(extra=()):
         # GitHub replaces spaces in asset names with dots
         lines.append(f"{digest}  {name.replace(' ', '.')}")
         print(f"{digest}  {name}")
-    (DIST / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # LF line endings, so `sha256sum -c SHA256SUMS.txt` works as is
+    (DIST / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"Wrote {DIST / 'SHA256SUMS.txt'}")
 
 
