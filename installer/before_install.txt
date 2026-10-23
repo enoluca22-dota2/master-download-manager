@@ -14,7 +14,7 @@ Upgrading from an earlier version
 
 What gets installed
   * The program, its own Python runtime, the yt-dlp media engine, FFmpeg,
-    a JavaScript runtime (deno) and the libtorrent engine — nothing else
+    a JavaScript runtime (deno) and the libtorrent engine - nothing else
     needs to be installed.
   * Optionally the browser extension files (load them from the app's
     Settings -> Browser Integration).

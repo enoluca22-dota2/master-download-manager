@@ -864,7 +864,7 @@ class DownloadManager:
         if not self._queue_file or not os.path.isfile(self._queue_file):
             return 0
         try:
-            with open(self._queue_file, "r", encoding="utf-8") as f:
+            with open(self._queue_file, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
         except (OSError, ValueError):
             return 0

@@ -104,7 +104,7 @@ class SchedulerStore:
         if not self._path or not os.path.isfile(self._path):
             return
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(self._path, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
         except (OSError, ValueError):
             return

@@ -173,7 +173,7 @@ class QueueStore:
         queues = []
         if self._path and os.path.isfile(self._path):
             try:
-                with open(self._path, "r", encoding="utf-8") as f:
+                with open(self._path, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
                 for item in (data.get("queues") if isinstance(data, dict) else None) or []:
                     try:

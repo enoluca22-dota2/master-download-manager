@@ -17,12 +17,19 @@ class SettingsStore:
         data = dict(DEFAULT_SETTINGS)
         if os.path.exists(self._path):
             try:
-                with open(self._path, "r", encoding="utf-8") as f:
+                with open(self._path, "r", encoding="utf-8-sig") as f:  # tolerate a BOM (Notepad, PowerShell)
                     on_disk = json.load(f)
                 if isinstance(on_disk, dict):
                     data.update(on_disk)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                # Unreadable: keep a copy before defaults (and a new token) get
+                # saved over it, so the user's settings can be recovered.
+                try:
+                    import shutil
+                    import time
+                    shutil.copy2(self._path, f"{self._path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}")
+                except OSError:
+                    pass
         needs_save = False
         if not data.get("api_token"):
             data["api_token"] = generate_token()

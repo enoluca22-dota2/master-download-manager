@@ -53,3 +53,21 @@ def test_corrupt_settings_file_falls_back_to_defaults(tmp_path):
     path.write_text("{not valid json", encoding="utf-8")
     store = SettingsStore(path=str(path))
     assert store.get("max_concurrent_downloads") == 3
+
+
+def test_settings_file_with_bom_is_read(tmp_path):
+    # Notepad / PowerShell 5 write UTF-8 with a byte-order mark
+    path = tmp_path / "settings.json"
+    path.write_bytes(b"\xef\xbb\xbf" + b'{"api_port": 47931, "api_token": "keepme"}')
+    store = SettingsStore(path=str(path))
+    assert store.get("api_port") == 47931
+    assert store.get("api_token") == "keepme"
+
+
+def test_corrupt_settings_are_backed_up_before_defaults_are_saved(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"api_token": "abc", "download_dir": "D:\\x"', encoding="utf-8")  # truncated JSON
+    SettingsStore(path=str(path))
+    backups = list(tmp_path.glob("settings.json.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8").startswith('{"api_token": "abc"')

@@ -122,7 +122,7 @@ class HistoryStore:
         imported = 0
         if self._json_path and os.path.isfile(self._json_path):
             try:
-                with open(self._json_path, "r", encoding="utf-8") as f:
+                with open(self._json_path, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
             except (OSError, ValueError):
                 data = []

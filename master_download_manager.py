@@ -51,7 +51,7 @@ def _forward_to_running_instance(target):
     """Hand a link/.torrent path to the already-running window via its local API."""
     from ytd.config import SETTINGS_FILE
     try:
-        with open(SETTINGS_FILE, encoding="utf-8") as f:
+        with open(SETTINGS_FILE, encoding="utf-8-sig") as f:
             settings = json.load(f)
         import requests
         requests.post(f"http://127.0.0.1:{int(settings.get('api_port', 47821))}/app/open",

@@ -1,4 +1,4 @@
-; Inno Setup script for Master Download Manager.
+﻿; Inno Setup script for Master Download Manager.
 ; Compiled by `python build.py installer` (uses the portable Inno Setup staged
 ; by tools/fetch_tools.py). Installs per-user by default (no admin needed).
 
@@ -9,12 +9,24 @@
   #define SourceDir "..\dist\MasterDownloadManager"
 #endif
 
-#define AppName "Master Download Manager"
+#ifndef AppName
+  #define AppName "Master Download Manager"
+#endif
+; Overridable only for the isolated install test (tools/installer_test.ps1); releases use the defaults.
+#ifndef AppIdGuid
+  #define AppIdGuid "{{6F2E9C1B-6A1D-4F6B-9B1E-6C9A2D7B3E41}"
+#endif
+#ifndef AppMutexName
+  #define AppMutexName "Local\MasterDownloadManager.SingleInstance"
+#endif
+#ifndef OutputName
+  #define OutputName "Master Download Manager Setup " + AppVersion
+#endif
 #define AppExe "MasterDownloadManager.exe"
 #define AppURL "https://github.com/enoluca22-dota2/master-download-manager"
 
 [Setup]
-AppId={{6F2E9C1B-6A1D-4F6B-9B1E-6C9A2D7B3E41}
+AppId={#AppIdGuid}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -42,7 +54,7 @@ PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
-OutputBaseFilename=Master Download Manager Setup {#AppVersion}
+OutputBaseFilename={#OutputName}
 SetupIconFile=..\mdm.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
@@ -55,7 +67,7 @@ WizardSmallImageFile=art\wizard-small-light-1x.bmp,art\wizard-small-light-2x.bmp
 WizardSmallImageFileDynamicDark=art\wizard-small-dark-1x.bmp,art\wizard-small-dark-2x.bmp
 InfoBeforeFile=..\installer\before_install.txt
 ; Refuses to install/uninstall while the app is running (same mutex the app holds).
-AppMutex=Local\MasterDownloadManager.SingleInstance
+AppMutex={#AppMutexName}
 CloseApplications=yes
 ChangesAssociations=yes
 InfoAfterFile=..\installer\after_install.txt
@@ -79,12 +91,18 @@ Name: "assoc_torrent"; Description: "Offer {#AppName} for .&torrent files (adds 
 Name: "assoc_magnet"; Description: "Open &magnet: links with {#AppName} (your current magnet app is restored on uninstall)"; GroupDescription: "Optional file and link types:"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\extensions\*"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: app
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\extensions"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: app
 Source: "{#SourceDir}\extensions\*"; DestDir: "{app}\extensions"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: browser
 
 [InstallDelete]
 ; extension files from an older version are replaced as a whole (or removed when the component is unticked)
 Type: filesandordirs; Name: "{app}\extensions"
+; re-running setup with a shortcut unticked removes that shortcut
+Type: files; Name: "{autodesktop}\{#AppName}.lnk"; Tasks: not desktopicon
+Type: files; Name: "{autoprograms}\{#AppName}.lnk"; Tasks: not startmenuicon
+Type: files; Name: "{autoprograms}\{#AppName} Licenses.lnk"; Tasks: not startmenuicon
+; shortcut name used by an early 3.0 build (duplicate "Licenses" entry)
+Type: files; Name: "{autoprograms}\{#AppName} — Licenses.lnk"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"; Comment: "Download videos, playlists, files and torrents"; Tasks: startmenuicon
@@ -134,8 +152,10 @@ function MagnetIsOurs: Boolean;
 var
   Cmd: String;
 begin
+  { Ours only if it starts THIS install's exe: another copy (portable, test,
+    other folder) must never take over or remove this one's registration. }
   Result := RegQueryStringValue(HKCU, MagnetKey + '\shell\open\command', '', Cmd) and
-            (Pos(Lowercase('{#AppExe}'), Lowercase(Cmd)) > 0);
+            (Pos(Lowercase(OurExe), Lowercase(Cmd)) > 0);
 end;
 
 procedure BackupValue(const SubKey, Name, BackupName: String);
@@ -197,13 +217,22 @@ begin
 end;
 
 procedure RemoveTorrentOffer;
+var
+  Cmd: String;
 begin
+  { Same rule as magnet: only remove the offer if it points at this install. }
+  if RegQueryStringValue(HKCU, 'Software\Classes\MasterDownloadManager.torrent\shell\open\command', '', Cmd) and
+     (Pos(Lowercase(OurExe), Lowercase(Cmd)) = 0) then
+    exit;
   RegDeleteValue(HKCU, 'Software\Classes\.torrent\OpenWithProgids', 'MasterDownloadManager.torrent');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\MasterDownloadManager.torrent');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+#ifdef InstallTest
+  exit;  { the isolated install test never touches file/link associations }
+#endif
   if CurStep = ssPostInstall then
   begin
     { Re-running setup with an option unticked turns that association off again. }
@@ -218,6 +247,9 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
+#ifdef InstallTest
+  exit;
+#endif
   if CurUninstallStep = usUninstall then
     UnregisterMagnet;
 end;
