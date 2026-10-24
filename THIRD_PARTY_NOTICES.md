@@ -71,6 +71,7 @@ The Apache-2.0 license text is included in `licenses/ab-download-manager/`.
 | zlib 1.3.1, libffi 3.4.4, expat 2.7.1, bzip2 1.0.8, xz 5.2.5 | as listed | Zlib, MIT, MIT, bzip2-1.0.6, public domain | Compression, ctypes, XML (from Python) | Yes |
 | Microsoft Visual C++ Runtime / Universal CRT | as shipped with Python 3.12.10 | Microsoft distributable code (Visual Studio license terms) | `VCRUNTIME140*.dll`, `MSVCP140.dll`, `ucrtbase.dll` | Yes |
 | customtkinter | 6.0.0 | MIT (the license file shipped in the wheel is MIT; the wheel metadata says CC0 — the shipped MIT text is followed) | Modern widgets | Yes |
+| Roboto (font) | 2.137 | Apache-2.0 (Copyright 2011 Google Inc.) | Interface font shipped inside CustomTkinter (`customtkinter/assets/fonts/Roboto`), unmodified. Listed from version 4.1.1; it was also inside 4.1.0, whose list missed it | Yes |
 | darkdetect | 0.8.0 | BSD-3-Clause | OS theme detection (customtkinter) | Yes |
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | Version parsing (customtkinter, updater) | Yes |
 | Pillow | 13.0.0 | MIT-CMU | Images for icons, tray, glass effects | Yes |
@@ -104,6 +105,29 @@ pytest-asyncio, httpx/httpcore, colorama (installed for click/pytest, not collec
 | mutagen | GPL-2.0-or-later | Importing it into the same process would extend GPL obligations to the whole application | yt-dlp falls back to FFmpeg for MP4/M4A/MP3/MKV thumbnail embedding; MDM does not offer thumbnail embedding for Opus/Vorbis/FLAC |
 | GPL FFmpeg builds | GPL-3.0 | An LGPL build covers everything MDM uses | none |
 | yt-dlp updater, `remote_components` (`ejs:github`, `ejs:npm`) | — | MDM must never fetch code from GitHub/npm at runtime | yt-dlp is updated by shipping a new MDM build |
+
+## 4a. Libraries compiled into the bundled FFmpeg
+
+The FFmpeg DLLs shipped with Master Download Manager 4.0.0 and 4.1.0 (BtbN
+"lgpl-shared" build `autobuild-2026-10-01-13-06`, FFmpeg n9.0.2-22-g46d8f462ee)
+contain these libraries, built in by that build: fontconfig, GMP, libiconv,
+libaom, libaribb24, libaribcaption, libass, libbluray, dav1d, FreeType,
+FriBidi, Game_Music_Emu, HarfBuzz, libjxl, Kvazaar, LCEVC decoder, LAME,
+OpenAPV, opencore-amr (AMR-NB/WB), OpenH264, OpenJPEG, libopenmpt, Opus,
+libplacebo, rav1e, librist, librsvg, Snappy, SoX Resampler, SRT, libssh,
+SVT-AV1, Theora, TwoLAME, uavs3d, libvmaf, Vorbis, oneVPL, libvpx, VVenC,
+libwebp, libxml2, zimg, ZeroMQ, ZVBI, liblzma, the Vulkan loader and zlib.
+Each is the work of its own authors and is licensed under its own terms
+(permissive licenses such as BSD, MIT, ISC, Apache-2.0 and the FreeType
+License; LGPL for LAME, FriBidi, librsvg, GMP, libssh, libbluray, SoX
+Resampler, TwoLAME, libplacebo and others; MPL-2.0 for SRT and ZeroMQ).
+The FFmpeg source of that revision is available at
+https://github.com/FFmpeg/FFmpeg/tree/46d8f462eeb87ee1f704d8c44a0ee24fca471ad1;
+the build scripts that pinned the library versions are those of
+https://github.com/BtbN/FFmpeg-Builds at commit
+e88e49f624457c455700b058f0a84ca87d499cc2 (the last change before that build;
+BtbN removes old automatic builds, so the release itself is no longer online). Complete notices for
+these libraries are being added to the license collection.
 
 ## 5. What the licenses require, and how this build satisfies it
 

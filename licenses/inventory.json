@@ -2,7 +2,7 @@
  "schema": 2,
  "app": "Master Download Manager",
  "app_version": "4.1.0",
- "generated": "2026-10-24T01:17:11",
+ "generated": "2026-10-24T12:03:36",
  "components": [
   {
    "id": "annotated-doc-0.0.5",
@@ -922,6 +922,21 @@
    "license_files": [
     "deno/LICENSE.md",
     "deno/SOURCE.txt"
+   ]
+  },
+  {
+   "id": "roboto",
+   "name": "Roboto (font)",
+   "kind": "font",
+   "version": "2.137",
+   "author": "Google LLC (designed by Christian Robertson)",
+   "license": "Apache-2.0",
+   "repository": "https://github.com/googlefonts/roboto",
+   "homepage": "",
+   "bundled_as": "_internal/customtkinter/assets/fonts/Roboto (shipped by CustomTkinter)",
+   "note": "Font metadata: 'Copyright 2011 Google Inc. All Rights Reserved. Licensed under the Apache License, Version 2.0'. Unmodified.",
+   "license_files": [
+    "roboto/Apache-2.0.txt"
    ]
   },
   {
