@@ -44,7 +44,7 @@ download and run it yourself after checking it. A release whose signed
 information **doesn't verify** is shown as "Verification: FAILED — do not
 install", with only *Close* and *Report a Problem*: it may have been tampered
 with. Details for the technically
-curious: [UPDATE_SECURITY.md](UPDATE_SECURITY.md).
+curious: [SECURITY.md](../SECURITY.md).
 
 ## If something goes wrong
 
