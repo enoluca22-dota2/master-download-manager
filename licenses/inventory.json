@@ -1,8 +1,8 @@
 {
  "schema": 2,
  "app": "Master Download Manager",
- "app_version": "4.1.0",
- "generated": "2026-10-24T12:03:36",
+ "app_version": "4.4.0",
+ "generated": "2026-10-27T01:39:49",
  "components": [
   {
    "id": "annotated-doc-0.0.5",
@@ -378,6 +378,21 @@
    ]
   },
   {
+   "id": "tinytag-2.3.2",
+   "name": "tinytag",
+   "kind": "python-package",
+   "version": "2.3.2",
+   "author": "Tom Wallroth, Mat (mathiascode)",
+   "license": "MIT",
+   "repository": "https://github.com/tinytag/tinytag",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "tinytag-2.3.2/LICENSE"
+   ]
+  },
+  {
    "id": "typing-inspection-0.4.4",
    "name": "typing-inspection",
    "kind": "python-package",
@@ -558,6 +573,21 @@
    ]
   },
   {
+   "id": "winrt-Windows.Media-3.2.1",
+   "name": "winrt-Windows.Media",
+   "kind": "python-package",
+   "version": "3.2.1",
+   "author": "pywinrt contributors",
+   "license": "MIT",
+   "repository": "https://github.com/pywinrt/pywinrt",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "winrt-Windows.Media-3.2.1/pywinrt-LICENSE.txt"
+   ]
+  },
+  {
    "id": "winrt-Windows.Media.Core-3.2.1",
    "name": "winrt-Windows.Media.Core",
    "kind": "python-package",
@@ -691,6 +721,21 @@
    "license_files": [
     "yt-dlp-ejs-0.8.0/LICENSE",
     "yt-dlp-ejs-0.8.0/bundled-dependencies-header.txt"
+   ]
+  },
+  {
+   "id": "ytmusicapi-1.12.3",
+   "name": "ytmusicapi",
+   "kind": "python-package",
+   "version": "1.12.3",
+   "author": "sigma67",
+   "license": "MIT",
+   "repository": "https://github.com/sigma67/ytmusicapi",
+   "homepage": "",
+   "bundled_as": "Python package inside _internal",
+   "note": "",
+   "license_files": [
+    "ytmusicapi-1.12.3/LICENSE"
    ]
   },
   {
@@ -896,14 +941,15 @@
    "id": "ffmpeg",
    "name": "FFmpeg / FFprobe",
    "kind": "executable",
-   "version": "n9.0.2-22-g46d8f462ee",
+   "version": "9.0.2",
    "author": "The FFmpeg developers",
-   "license": "LGPL-3.0-or-later",
+   "license": "LGPL-2.1-or-later",
    "repository": "https://git.ffmpeg.org/ffmpeg.git",
    "homepage": "",
    "bundled_as": "tools/ffmpeg (separate executables + DLLs)",
-   "note": "BtbN LGPL shared build (built with --enable-version3; no GPL or non-free parts). Source location in SOURCE.txt.",
+   "note": "Minimal LGPL build made for MDM from the official FFmpeg release (tools/ffmpeg_build): no GPL, non-free or version3 parts; replaceable DLLs. Exact sources, configure line and rebuild steps in BUILD.txt; the Corresponding Source archive is published with every release.",
    "license_files": [
+    "ffmpeg/BUILD.txt",
     "ffmpeg/LICENSE.txt",
     "ffmpeg/SOURCE.txt"
    ]
@@ -922,6 +968,82 @@
    "license_files": [
     "deno/LICENSE.md",
     "deno/SOURCE.txt"
+   ]
+  },
+  {
+   "id": "lame",
+   "name": "LAME (libmp3lame, inside avcodec)",
+   "kind": "ffmpeg-library",
+   "version": "3.100",
+   "author": "Mike Cheng, Mark Taylor and the LAME project contributors",
+   "license": "LGPL-2.0-or-later",
+   "repository": "https://lame.sourceforge.io",
+   "homepage": "",
+   "bundled_as": "tools/ffmpeg (FFmpeg --enable-libmp3lame)",
+   "note": "MP3 encoder, statically linked into avcodec-*.dll (replaceable DLL). Unmodified LAME source; built without its decoder and front end.",
+   "license_files": [
+    "lame/LAME-LGPL-2.0.txt"
+   ]
+  },
+  {
+   "id": "opus",
+   "name": "Opus (libopus, inside avcodec)",
+   "kind": "ffmpeg-library",
+   "version": "1.6.1",
+   "author": "Xiph.Org Foundation, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo and contributors",
+   "license": "BSD-3-Clause",
+   "repository": "https://gitlab.xiph.org/xiph/opus",
+   "homepage": "",
+   "bundled_as": "tools/ffmpeg (FFmpeg --enable-libopus)",
+   "note": "Opus encoder/decoder, statically linked into avcodec-*.dll.",
+   "license_files": [
+    "opus/Opus-BSD-3-Clause.txt"
+   ]
+  },
+  {
+   "id": "vorbis-ogg",
+   "name": "libvorbis + libogg (inside avcodec)",
+   "kind": "ffmpeg-library",
+   "version": "1.3.7 / 1.3.6",
+   "author": "Xiph.Org Foundation",
+   "license": "BSD-3-Clause",
+   "repository": "https://gitlab.xiph.org/xiph/vorbis",
+   "homepage": "",
+   "bundled_as": "tools/ffmpeg (FFmpeg --enable-libvorbis)",
+   "note": "Ogg Vorbis encoder, statically linked into avcodec-*.dll.",
+   "license_files": [
+    "vorbis-ogg/libvorbis-BSD-3-Clause.txt",
+    "vorbis-ogg/libogg-BSD-3-Clause.txt"
+   ]
+  },
+  {
+   "id": "zlib-ffmpeg",
+   "name": "zlib (inside FFmpeg)",
+   "kind": "ffmpeg-library",
+   "version": "1.3.2",
+   "author": "Jean-loup Gailly and Mark Adler",
+   "license": "Zlib",
+   "repository": "https://zlib.net",
+   "homepage": "",
+   "bundled_as": "tools/ffmpeg (FFmpeg --enable-zlib)",
+   "note": "Statically linked into the FFmpeg DLLs (PNG, compressed metadata).",
+   "license_files": [
+    "zlib-ffmpeg/zlib-License.txt"
+   ]
+  },
+  {
+   "id": "mingw-w64-runtime",
+   "name": "mingw-w64 runtime (startup code inside the FFmpeg binaries)",
+   "kind": "ffmpeg-library",
+   "version": "as in the build toolchain",
+   "author": "the mingw-w64 project",
+   "license": "LicenseRef-mingw-w64-runtime",
+   "repository": "https://www.mingw-w64.org",
+   "homepage": "",
+   "bundled_as": "tools/ffmpeg",
+   "note": "Compiler startup/CRT glue linked into ffmpeg/ffprobe and the DLLs (ZPL-2.1, MIT and public-domain parts, see the text). libgcc is linked statically under the GCC Runtime Library Exception (no obligations for the result).",
+   "license_files": [
+    "mingw-w64-runtime/mingw-w64-runtime.txt"
    ]
   },
   {

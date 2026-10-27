@@ -13,8 +13,10 @@ below. It is copyright (c) 2026 the Master Download Manager author, all rights
 reserved, and is not released under an open-source license — see
 `docs/LICENSING.md`.
 
-Versions below are those bundled in Master Download Manager 4.1.0. The
-authoritative, build-verified list (61 components, with authors and full
+The tables below were written for Master Download Manager 4.1.0 (multimedia
+components added in 4.2.0, the FFmpeg build replaced in 4.4.0 - section 4a).
+Python package versions change with each build: the authoritative,
+build-verified list (70 components in 4.4.0, with authors and full
 texts) is `licenses/inventory.json`, shown in the app under Help → View
 Open-Source Licenses; `tools/collect_licenses.py --verify` fails the build if
 it differs from what PyInstaller actually bundled.
@@ -49,7 +51,7 @@ The Apache-2.0 license text is included in `licenses/ab-download-manager/`.
 | **yt-dlp** | 2026.8.19 | Unlicense (public domain dedication) | Media engine: extractors, format selection, HLS/DASH downloading, post-processing | Yes (Python package; the pinned PyPI release, or a local audited source tree when present) | Yes | https://github.com/yt-dlp/yt-dlp |
 | **yt-dlp-ejs** | 0.8.0 | Unlicense AND MIT AND ISC (the solver bundles `meriyah` (ISC) and `astring` (MIT)) | Scripts that solve YouTube's JavaScript challenges | Yes | Yes (YouTube) | https://github.com/yt-dlp/ejs |
 | **deno** | 2.9.7 | MIT (the binary also contains V8, BSD-3-Clause, and Rust crates under MIT/Apache-2.0) | JavaScript runtime that executes the yt-dlp-ejs scripts, sandboxed (`--no-remote`, no network or file permissions) | Yes (`tools/deno/deno.exe`) | Yes (YouTube) | https://github.com/denoland/deno |
-| **FFmpeg / FFprobe** | n9.0.2-22-g46d8f462ee (BtbN LGPL shared build, autobuild-2026-10-01-13-06) | LGPL-3.0-or-later (built with `--enable-version3`, no GPL or non-free parts) | Merging video+audio, audio extraction, remuxing, subtitle conversion/embedding, thumbnail & metadata embedding | Yes (`tools/ffmpeg/`, separate executables + DLLs) | Yes, for merging/conversion | https://ffmpeg.org · build scripts https://github.com/BtbN/FFmpeg-Builds |
+| **FFmpeg / FFprobe** | 9.0.2 (minimal LGPL build made for MDM from the official release, since 4.4.0) | LGPL-2.1-or-later (no `--enable-gpl`, `--enable-nonfree` or `--enable-version3`) | Merging video+audio, audio extraction, remuxing, subtitle conversion/embedding, thumbnail & metadata embedding | Yes (`tools/ffmpeg/`, separate executables + replaceable DLLs) | Yes, for merging/conversion | https://ffmpeg.org · Corresponding Source: `ffmpeg-mdm-corresponding-source.tar` on every release · build: `tools/ffmpeg/BUILD.txt` |
 | **libtorrent** (rasterbar) | 2.1.1 | BSD-3-Clause; statically includes **Boost** (BSL-1.0) and **OpenSSL 3** (Apache-2.0) | Torrent engine (magnet, .torrent, DHT, peers) | Yes | Yes (torrents) | https://libtorrent.org · https://github.com/arvidn/libtorrent |
 | requests | 2.34.2 | Apache-2.0 | Direct HTTP engine, update checks | Yes | Yes | https://github.com/psf/requests |
 | urllib3 | 2.8.0 | MIT | HTTP transport for requests / yt-dlp | Yes | Yes | https://github.com/urllib3/urllib3 |
@@ -91,6 +93,22 @@ The Apache-2.0 license text is included in `licenses/ab-download-manager/`.
 | click | 8.5.0 | BSD-3-Clause | uvicorn dependency | Yes |
 | opentelemetry-api | 1.45.1 | Apache-2.0 | FastAPI optional instrumentation API (unused, pulled in as a dependency) | Yes |
 
+## 2a. Multimedia sections (4.2)
+
+| Component | Version | License | Purpose | Bundled |
+|---|---|---|---|---|
+| tinytag | 2.3.2 | MIT | Reading tags/artwork of library files (mutagen stays excluded: GPL) | Yes |
+| ytmusicapi | 1.12.3 | MIT | Artist pages and search suggestions | Yes |
+| winrt-Windows.Media (pywinrt) | 3.2.1 | MIT | Windows media overlay / media keys for the player | Yes |
+| Windows media engine (MediaPlayer) | part of Windows | Microsoft | Audio playback | No - part of Windows |
+
+Online services used by these sections (data is fetched at runtime, not bundled; each is credited in the app
+where its data is shown): YouTube (via yt-dlp) for songs, videos, playlists and audio streams, and YouTube's
+own player for watching; YouTube Music (via ytmusicapi) for artist pages; MusicBrainz (core data CC0) and the
+Cover Art Archive for albums and covers; Radio Browser (radio-browser.info) for stations; LRCLIB (lrclib.net)
+for lyrics; flagcdn.com for country flag images (public-domain flags). The curated radio list
+(ytd/media/data/radio_stations.json) is the station catalog of the author's MImic app.
+
 ## 3. Build and test tools (NOT distributed)
 
 PyInstaller 6.22.3 (GPL-2.0-or-later **with the bootloader exception**, which
@@ -108,26 +126,36 @@ pytest-asyncio, httpx/httpcore, colorama (installed for click/pytest, not collec
 
 ## 4a. Libraries compiled into the bundled FFmpeg
 
-The FFmpeg DLLs shipped with Master Download Manager 4.0.0 and 4.1.0 (BtbN
-"lgpl-shared" build `autobuild-2026-10-01-13-06`, FFmpeg n9.0.2-22-g46d8f462ee)
-contain these libraries, built in by that build: fontconfig, GMP, libiconv,
-libaom, libaribb24, libaribcaption, libass, libbluray, dav1d, FreeType,
-FriBidi, Game_Music_Emu, HarfBuzz, libjxl, Kvazaar, LCEVC decoder, LAME,
-OpenAPV, opencore-amr (AMR-NB/WB), OpenH264, OpenJPEG, libopenmpt, Opus,
-libplacebo, rav1e, librist, librsvg, Snappy, SoX Resampler, SRT, libssh,
-SVT-AV1, Theora, TwoLAME, uavs3d, libvmaf, Vorbis, oneVPL, libvpx, VVenC,
-libwebp, libxml2, zimg, ZeroMQ, ZVBI, liblzma, the Vulkan loader and zlib.
-Each is the work of its own authors and is licensed under its own terms
-(permissive licenses such as BSD, MIT, ISC, Apache-2.0 and the FreeType
-License; LGPL for LAME, FriBidi, librsvg, GMP, libssh, libbluray, SoX
-Resampler, TwoLAME, libplacebo and others; MPL-2.0 for SRT and ZeroMQ).
-The FFmpeg source of that revision is available at
-https://github.com/FFmpeg/FFmpeg/tree/46d8f462eeb87ee1f704d8c44a0ee24fca471ad1;
-the build scripts that pinned the library versions are those of
-https://github.com/BtbN/FFmpeg-Builds at commit
-e88e49f624457c455700b058f0a84ca87d499cc2 (the last change before that build;
-BtbN removes old automatic builds, so the release itself is no longer online). Complete notices for
-these libraries are being added to the license collection.
+**Since 4.4.0** MDM ships a minimal FFmpeg 9.0.2 built from the official
+source archives (see `tools/ffmpeg/BUILD.txt` for the exact archives, their
+SHA-256 and the configure line). Besides FFmpeg's own code it contains only:
+
+| Library | Version | License | Why | License text |
+|---|---|---|---|---|
+| LAME (libmp3lame) | 3.100 | LGPL-2.0-or-later | MP3 conversion | `licenses/lame/` |
+| Opus (libopus) | 1.6.1 | BSD-3-Clause | Opus conversion | `licenses/opus/` |
+| libvorbis + libogg | 1.3.7 / 1.3.6 | BSD-3-Clause | Ogg Vorbis conversion | `licenses/vorbis-ogg/` |
+| zlib | 1.3.2 | Zlib | PNG, compressed metadata | `licenses/zlib-ffmpeg/` |
+| mingw-w64 runtime | (toolchain) | ZPL-2.1 / MIT / public domain parts | compiler start-up code | `licenses/mingw-w64-runtime/` |
+
+libgcc is linked statically under the GCC Runtime Library Exception. HTTPS uses
+Windows' own TLS (Schannel). The FFmpeg DLLs in `tools/ffmpeg/` can be replaced
+with your own build. The complete Corresponding Source (the six official
+source archives and the build script) is published as
+`ffmpeg-mdm-corresponding-source.tar` with every release that ships these
+binaries.
+
+**4.0.0 – 4.3.0** shipped a different FFmpeg (BtbN "lgpl-shared" build
+`autobuild-2026-10-01-13-06`, FFmpeg n9.0.2-22-g46d8f462ee, LGPL-3.0-or-later)
+that statically contained about 49 further libraries (fontconfig, GMP,
+libiconv, libaom, libass, libbluray, dav1d, FreeType, FriBidi, HarfBuzz, LAME,
+OpenH264, Opus, libplacebo, SRT, libssh, SVT-AV1, libvpx, libwebp, libxml2,
+ZeroMQ, zlib and others), each under its own license (BSD, MIT, ISC,
+Apache-2.0, FreeType License, LGPL, MPL-2.0). The FFmpeg source of that
+revision is at https://github.com/FFmpeg/FFmpeg/tree/46d8f462eeb87ee1f704d8c44a0ee24fca471ad1;
+the library versions were pinned by https://github.com/BtbN/FFmpeg-Builds at
+commit e88e49f624457c455700b058f0a84ca87d499cc2. Installing 4.4.0 replaces
+that build.
 
 ## 5. What the licenses require, and how this build satisfies it
 
@@ -136,7 +164,8 @@ these libraries are being added to the license collection.
 | Include copyright notice + license text | All BSD/MIT/Apache/PSF/ISC/BSL components | Full texts in `licenses/<component>/` inside the app folder and this file |
 | Apache-2.0 NOTICE files | requests, opentelemetry-api, packaging, OpenSSL | Copied whenever the package ships one — requests does (`licenses/requests-2.34.2/NOTICE`); the others ship only their LICENSE |
 | MPL-2.0: make source of MPL files available | certifi (unmodified `cacert.pem`) | Unmodified; source location listed above |
-| LGPL-3.0: allow relinking/replacement; provide source or a written offer; include license text | FFmpeg, pystray | FFmpeg is a separate, unmodified executable with its DLLs in `tools/ffmpeg/` (user-replaceable); exact upstream source/build references in `licenses/ffmpeg/SOURCE.txt`. pystray is collected as plain `.py` files (not frozen into the archive) so it can be swapped. Neither is modified. If you distribute the build publicly, keep the source references valid (or host a copy of the matching source archives) |
+| LGPL-2.1 / LGPL-2.0: include the license text; make the complete corresponding source available from the same place as the binaries; allow replacing the library | FFmpeg, LAME (inside the FFmpeg DLLs) | FFmpeg is a separate executable with its DLLs in `tools/ffmpeg/` (user-replaceable; MDM only runs it as a separate program). Unmodified upstream source; the exact archives + build script are published as `ffmpeg-mdm-corresponding-source.tar` next to the installer on every release; `tools/ffmpeg/BUILD.txt` documents the build. License texts in `licenses/ffmpeg/` and `licenses/lame/` |
+| LGPL-3.0: allow relinking/replacement; provide source or a written offer; include license text | pystray | Collected as plain `.py` files (not frozen into the archive) so it can be swapped; unmodified; source: https://github.com/moses-palmer/pystray |
 | Unlicense | yt-dlp, yt-dlp-ejs | No requirement; credited anyway |
 | Don't use upstream trademarks to endorse | all | The product is branded "Master Download Manager"; third-party names appear only in these notices and the About/Licenses screen |
 
@@ -145,7 +174,10 @@ these libraries are being added to the license collection.
 The application contacts the network **only** for the downloads the user
 requests (websites, CDNs, BitTorrent peers/trackers/DHT) and for update checks:
 the GitHub Releases API of the official repository, at most once a day while
-the app runs (Settings → Updates; can be turned off) and when the user clicks
-Check for Updates. An update is downloaded only after the user clicks Update
-Now, and installed only if its signed manifest verifies. It never downloads
+the app runs (Settings → Updates; interval configurable, can be turned off) and
+when the user clicks Check for Updates - either the public download repository
+or, if the user chose it, a private releases repository read with the user's
+own read-only token. An update is downloaded only after the user clicks
+Download Update, and installed only after Install Update and only if its signed
+manifest verifies. It never downloads
 yt-dlp, scripts, or binaries from GitHub/npm at runtime.

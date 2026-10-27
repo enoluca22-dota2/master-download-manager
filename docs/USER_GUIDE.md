@@ -97,6 +97,33 @@ your preferences between PCs. The browser security token is never exported.
 *Settings → General → Reset all settings* restores the defaults and keeps
 downloads, history and the browser pairing.
 
+## Music, Videos, Radio and Library (4.2)
+
+The rail on the left switches between **Downloads**, **Music**, **Videos**, **Radio** and **Library**. Downloads
+keep running and the music keeps playing while you switch. The player at the bottom has play/pause, previous/next,
+shuffle, repeat, a seek bar, volume, lyrics, the queue and favorites; click the artwork for the full player.
+Windows media keys and the Windows media overlay work too.
+
+* **Music** — search songs, videos, artists, albums or playlists. An artist page shows the biography, popular
+  tracks, albums, singles, music videos and related artists; album and playlist pages have Play, Shuffle, Save and
+  Download. (YouTube Music's own catalog isn't available in Albania, so songs come from YouTube, albums and track
+  lists from MusicBrainz; album tracks play the best-matching YouTube upload.)
+* **Videos** — search YouTube; *Watch* opens YouTube's own player in a separate window (quality, captions, speed,
+  fullscreen are YouTube's); *Download…* opens MDM's usual Add-download dialog.
+* **Radio** — Albania is shown first. **+ Add country** adds others (Kosovo, Italy, United Kingdom, United States,
+  Germany, Spain, ...), **−** removes one. *Test stations* connects to each stream: a station shows "Working ✓" only
+  after audio actually arrived. *+ Custom stream* adds your own address.
+* **Library** — add the folders you want (only those are read; *+ Add MDM's download folder* adds your download
+  folder). Finished media downloads appear automatically. Songs, albums, artists, videos, playlists, favorites,
+  recently played and duplicates. Removing from the library never deletes a file; *Delete file…* asks first and
+  uses the Recycle Bin.
+* **Lyrics** — from the song file, an .lrc file next to it, or LRCLIB (online). Synchronized lyrics highlight the
+  current line; click a line to jump there.
+* **⋯ menu** on every song: play now / next, add to queue, download, add to playlist, favorite, artist, album,
+  lyrics, share / copy link, and for your own files: open location, file information, remove, delete.
+* **Navidrome** (Library → Navidrome) — connect your own server (also through Tailscale); the password is stored
+  encrypted for your Windows account.
+
 ## Updates
 
 **Help → Check for Updates…** — see [UPDATING.md](UPDATING.md).
